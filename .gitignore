@@ -1,0 +1,51 @@
+# =========================
+# Node.js & React Ignore
+# =========================
+
+# Dependencies (මේවා ගොඩක් ලොකු නිසා git යවන්නේ නෑ)
+node_modules/
+/node_modules
+/.pnp
+.pnp.js
+
+# Environment Variables (ඔයාගේ API Keys, Passwords තියෙන නිසා මේවා අනිවාර්යයෙන්ම ignore වෙන්න ඕනේ)
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+*.env
+
+# Build Output (Frontend එක build කරාම හැදෙන ෆයිල්ස්)
+build/
+dist/
+/build
+out/
+
+# Logs (සිස්ටම් ලොග් ෆයිල්ස්)
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# OS Generated Files (Windows / Mac වලින් හැදෙන අනවශ්‍ය ෆයිල්ස්)
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE & Editor specific files (VS Code වගේ ඒවගෙන් හැදෙන ෆයිල්ස්)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
