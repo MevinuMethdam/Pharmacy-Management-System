@@ -53,7 +53,29 @@ const Medicine = sequelize.define('Medicine', {
         type: DataTypes.BOOLEAN,
         allowNull: false,
         defaultValue: false
+    },
+
+    supplierId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+            model: 'suppliers',
+            key: 'id'
+        }
+    },
+    dosage: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    barcode: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    rackLocation: {
+        type: DataTypes.STRING,
+        allowNull: true
     }
+
 }, {
     timestamps: true,
     tableName: 'medicines'

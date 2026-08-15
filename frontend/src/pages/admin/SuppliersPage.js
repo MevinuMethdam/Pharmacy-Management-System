@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import AdminLayout from '../../components/layout/AdminLayout';
-import { Search, Plus, Edit, Trash2, X, Truck, Building, User, Phone, FileText, Calendar, BarChart2 } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, X, Truck, Building, User, Phone, FileText, Calendar, BarChart2, DollarSign, Mail, MapPin, CreditCard } from 'lucide-react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import Highcharts from 'highcharts';
@@ -15,13 +15,31 @@ export default function SuppliersPage() {
     const [editingSupplier, setEditingSupplier] = useState(null);
     const [submitting, setSubmitting] = useState(false);
 
+    // --- NEW: Payment Modal States ---
+    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+    const [paymentSupplier, setPaymentSupplier] = useState(null);
+    const [submittingPayment, setSubmittingPayment] = useState(false);
+    const [paymentForm, setPaymentForm] = useState({
+        amount: '',
+        paymentDate: new Date().toISOString().split('T')[0],
+        paymentMethod: 'Cash',
+        chequeNumber: '',
+        notes: ''
+    });
+
     const [form, setForm] = useState({
         companyName: '',
         repName: '',
         contactNumber: '',
         creditPeriod: 30,
         brNumber: '',
-        status: 'Active'
+        status: 'Active',
+        email: '',
+        address: '',
+        officePhone: '',
+        bankName: '',
+        accountNumber: '',
+        accountName: ''
     });
 
     useEffect(() => {
@@ -72,15 +90,63 @@ export default function SuppliersPage() {
         }
     };
 
+    const openPaymentModal = (supplier) => {
+        setPaymentSupplier(supplier);
+        setPaymentForm({
+            amount: '',
+            paymentDate: new Date().toISOString().split('T')[0],
+            paymentMethod: 'Cash',
+            chequeNumber: '',
+            notes: ''
+        });
+        setIsPaymentModalOpen(true);
+    };
+
+    const closePaymentModal = () => {
+        setIsPaymentModalOpen(false);
+        setPaymentSupplier(null);
+    };
+
+    const handlePaymentSubmit = async (e) => {
+        e.preventDefault();
+        if (!paymentForm.amount || paymentForm.amount <= 0) {
+            toast.error('Please enter a valid payment amount');
+            return;
+        }
+
+        setSubmittingPayment(true);
+        try {
+            const payload = {
+                ...paymentForm,
+                supplierId: paymentSupplier.id,
+                paymentNumber: `PAY-${Date.now()}`
+            };
+            await axios.post('http://localhost:5000/api/supplier-payments', payload);
+            toast.success('Payment recorded and Outstanding Balance updated! 🎉');
+            closePaymentModal();
+            fetchSuppliers(); // Refresh table to show new outstanding balance
+        } catch (err) {
+            toast.error('Failed to record payment');
+        } finally {
+            setSubmittingPayment(false);
+        }
+    };
+
     const openEdit = (supplier) => {
         setEditingSupplier(supplier);
         setForm({
-            companyName: supplier.companyName,
-            repName: supplier.repName,
-            contactNumber: supplier.contactNumber,
-            creditPeriod: supplier.creditPeriod,
+            companyName: supplier.companyName || '',
+            repName: supplier.repName || '',
+            contactNumber: supplier.contactNumber || '',
+            creditPeriod: supplier.creditPeriod || 30,
             brNumber: supplier.brNumber || '',
-            status: supplier.status || 'Active'
+            status: supplier.status || 'Active',
+            email: supplier.email || '',
+            address: supplier.address || '',
+            officePhone: supplier.officePhone || '',
+            bankName: supplier.bankName || '',
+            accountNumber: supplier.accountNumber || '',
+            accountName: supplier.accountName || ''
         });
         setIsModalOpen(true);
     };
@@ -88,7 +154,10 @@ export default function SuppliersPage() {
     const closeModal = () => {
         setIsModalOpen(false);
         setEditingSupplier(null);
-        setForm({ companyName: '', repName: '', contactNumber: '', creditPeriod: 30, brNumber: '', status: 'Active' });
+        setForm({
+            companyName: '', repName: '', contactNumber: '', creditPeriod: 30, brNumber: '', status: 'Active',
+            email: '', address: '', officePhone: '', bankName: '', accountNumber: '', accountName: ''
+        });
     };
 
     const filteredSuppliers = suppliers.filter(s =>
@@ -288,15 +357,16 @@ export default function SuppliersPage() {
                                     <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Medical Rep</th>
                                     <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Contact</th>
                                     <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Credit Period</th>
+                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Outstanding Balance</th>
                                     <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Status</th>
                                     <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 text-right">Actions</th>
                                 </tr>
                                 </thead>
                                 <tbody>
                                 {loading ? (
-                                    <tr><td colSpan="6" className="text-center py-16 text-slate-500 font-medium text-sm">Loading suppliers...</td></tr>
+                                    <tr><td colSpan="7" className="text-center py-16 text-slate-500 font-medium text-sm">Loading suppliers...</td></tr>
                                 ) : filteredSuppliers.length === 0 ? (
-                                    <tr><td colSpan="6" className="text-center py-16 text-slate-500 font-medium text-sm">No suppliers found. Click "Add Supplier" to add one.</td></tr>
+                                    <tr><td colSpan="7" className="text-center py-16 text-slate-500 font-medium text-sm">No suppliers found. Click "Add Supplier" to add one.</td></tr>
                                 ) : filteredSuppliers.map((s) => (
                                     <tr key={s.id} className="group hover:bg-white/20 transition-colors border-b border-white/20 last:border-0">
                                         <td className="py-4 align-top pt-5">
@@ -309,11 +379,23 @@ export default function SuppliersPage() {
                                             </span>
                                         </td>
                                         <td className="py-4 align-top pt-5">
-                                            <span className="flex items-center gap-1.5 text-[13px] font-medium text-slate-600">
-                                                <Phone size={14} className="text-slate-400"/> {s.contactNumber}
-                                            </span>
+                                            <div className="flex flex-col gap-1">
+                                                <span className="flex items-center gap-1.5 text-[13px] font-medium text-slate-600">
+                                                    <Phone size={14} className="text-slate-400"/> {s.contactNumber}
+                                                </span>
+                                                {s.email && (
+                                                    <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+                                                        <Mail size={12} className="text-slate-400"/> {s.email}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </td>
                                         <td className="py-4 align-top pt-5 text-[13px] font-bold text-slate-700">{s.creditPeriod} Days</td>
+                                        <td className="py-4 align-top pt-5">
+                                            <span className={`text-[14px] font-black ${Number(s.totalOutstanding) > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                                                LKR {Number(s.totalOutstanding || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                                            </span>
+                                        </td>
                                         <td className="py-4 align-top pt-5">
                                             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold backdrop-blur-sm shadow-sm ${
                                                 s.status === 'Active' ? 'bg-emerald-100/80 text-emerald-700 border border-emerald-200/50' : 'bg-rose-100/80 text-rose-700 border border-rose-200/50'
@@ -323,6 +405,7 @@ export default function SuppliersPage() {
                                         </td>
                                         <td className="py-4 align-top pt-4 text-right">
                                             <div className="flex justify-end gap-2">
+                                                <button onClick={() => openPaymentModal(s)} className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/50 rounded-lg transition-colors cursor-pointer" title="Make Payment"><DollarSign size={16} strokeWidth={2.5} /></button>
                                                 <button onClick={() => openEdit(s)} className="p-1.5 text-slate-500 hover:text-sky-700 hover:bg-sky-100/50 rounded-lg transition-colors cursor-pointer" title="Edit Supplier"><Edit size={16} /></button>
                                                 <button onClick={() => handleDelete(s.id)} className="p-1.5 text-slate-500 hover:text-rose-700 hover:bg-rose-100/50 rounded-lg transition-colors cursor-pointer" title="Delete Supplier"><Trash2 size={16} /></button>
                                             </div>
@@ -337,9 +420,70 @@ export default function SuppliersPage() {
                 </div>
             </div>
 
+            {isPaymentModalOpen && paymentSupplier && (
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-md flex items-center justify-center z-[100] p-4">
+                    <div className="bg-white/90 backdrop-blur-2xl p-8 rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[500px]">
+                        <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <h2 className="text-[20px] font-bold text-slate-800 flex items-center gap-2.5">
+                                    <DollarSign className="w-6 h-6 text-emerald-500"/> Make Payment
+                                </h2>
+                                <p className="text-[12px] font-medium text-slate-500 mt-1">Pay to: <span className="font-bold text-slate-700">{paymentSupplier.companyName}</span></p>
+                            </div>
+                            <button onClick={closePaymentModal} className="hover:bg-slate-100 p-2 rounded-full transition-colors cursor-pointer text-slate-400">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="bg-rose-50/50 border border-rose-100 rounded-xl p-4 mb-6 flex justify-between items-center">
+                            <span className="text-[12px] font-bold text-slate-600 uppercase">Current Outstanding</span>
+                            <span className="text-[18px] font-black text-rose-500">LKR {Number(paymentSupplier.totalOutstanding || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                        </div>
+
+                        <form onSubmit={handlePaymentSubmit} className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Payment Amount *</label>
+                                    <input type="number" required min="1" step="0.01" className="w-full px-4 py-3 bg-white/60 border border-slate-200 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500/40"
+                                           value={paymentForm.amount} onChange={e => setPaymentForm({...paymentForm, amount: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Date *</label>
+                                    <input type="date" required className="w-full px-4 py-3 bg-white/60 border border-slate-200 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500/40"
+                                           value={paymentForm.paymentDate} onChange={e => setPaymentForm({...paymentForm, paymentDate: e.target.value})} />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Payment Method *</label>
+                                <select required className="w-full px-4 py-3 bg-white/60 border border-slate-200 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500/40 cursor-pointer"
+                                        value={paymentForm.paymentMethod} onChange={e => setPaymentForm({...paymentForm, paymentMethod: e.target.value})}>
+                                    <option value="Cash">Cash</option>
+                                    <option value="Cheque">Cheque</option>
+                                    <option value="Bank Transfer">Bank Transfer</option>
+                                    <option value="Online">Online</option>
+                                </select>
+                            </div>
+
+                            {paymentForm.paymentMethod === 'Cheque' && (
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Cheque Number</label>
+                                    <input type="text" required placeholder="e.g. 123456" className="w-full px-4 py-3 bg-white/60 border border-slate-200 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500/40"
+                                           value={paymentForm.chequeNumber} onChange={e => setPaymentForm({...paymentForm, chequeNumber: e.target.value})} />
+                                </div>
+                            )}
+
+                            <button type="submit" disabled={submittingPayment} className="w-full mt-4 bg-emerald-500/90 backdrop-blur-md text-white font-bold py-3.5 rounded-2xl shadow-[0_10px_25px_-5px_rgba(16,185,129,0.3)] hover:bg-emerald-600 transition-all active:scale-[0.98] text-[15px] cursor-pointer disabled:opacity-50 border border-emerald-400/50">
+                                {submittingPayment ? 'Processing...' : 'Record Payment'}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            )}
+
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-[100] p-4">
-                    <div className="bg-white/80 backdrop-blur-2xl p-8 rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[550px] max-h-[90vh] overflow-y-auto">
+                    <div className="bg-white/80 backdrop-blur-2xl p-8 rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[650px] max-h-[90vh] overflow-y-auto hide-scrollbar">
 
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-[20px] font-bold text-slate-800 flex items-center gap-2.5">
@@ -350,43 +494,79 @@ export default function SuppliersPage() {
                             </button>
                         </div>
 
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            <div>
-                                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Company Name <span className="text-rose-500">*</span></label>
-                                <input type="text" required placeholder="e.g. Hemas Pharmaceuticals" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.companyName} onChange={(e) => setForm({...form, companyName: e.target.value})} />
-                            </div>
+                        <form onSubmit={handleSubmit} className="space-y-5">
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-4">
+                                <h3 className="text-[12px] font-extrabold text-sky-600 uppercase tracking-widest border-b border-white pb-2">General Info</h3>
                                 <div>
-                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Medical Rep Name <span className="text-rose-500">*</span></label>
-                                    <input type="text" required placeholder="e.g. Kasun" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.repName} onChange={(e) => setForm({...form, repName: e.target.value})} />
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Company Name <span className="text-rose-500">*</span></label>
+                                    <input type="text" required placeholder="e.g. Hemas Pharmaceuticals" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.companyName} onChange={(e) => setForm({...form, companyName: e.target.value})} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Medical Rep Name <span className="text-rose-500">*</span></label>
+                                        <input type="text" required placeholder="e.g. Kasun" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.repName} onChange={(e) => setForm({...form, repName: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Contact Number <span className="text-rose-500">*</span></label>
+                                        <input type="text" required placeholder="e.g. 0771234567" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.contactNumber} onChange={(e) => setForm({...form, contactNumber: e.target.value})} />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Email Address</label>
+                                        <input type="email" placeholder="e.g. info@hemas.com" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.email} onChange={(e) => setForm({...form, email: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Office Phone</label>
+                                        <input type="text" placeholder="e.g. 0112345678" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.officePhone} onChange={(e) => setForm({...form, officePhone: e.target.value})} />
+                                    </div>
                                 </div>
                                 <div>
-                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Contact Number <span className="text-rose-500">*</span></label>
-                                    <input type="text" required placeholder="e.g. 0771234567" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.contactNumber} onChange={(e) => setForm({...form, contactNumber: e.target.value})} />
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><MapPin size={14}/> Company Address</label>
+                                    <input type="text" placeholder="e.g. 123, Galle Road, Colombo" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.address} onChange={(e) => setForm({...form, address: e.target.value})} />
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            {/* --- Bank & Terms --- */}
+                            <div className="space-y-4 pt-2">
+                                <h3 className="text-[12px] font-extrabold text-sky-600 uppercase tracking-widest border-b border-white pb-2">Bank & Terms</h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Bank Name</label>
+                                        <input type="text" placeholder="e.g. Commercial Bank" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.bankName} onChange={(e) => setForm({...form, bankName: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Account Number</label>
+                                        <input type="text" placeholder="e.g. 1000123456" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.accountNumber} onChange={(e) => setForm({...form, accountNumber: e.target.value})} />
+                                    </div>
+                                </div>
                                 <div>
-                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Credit Period (Days)</label>
-                                    <input type="number" required min="0" placeholder="e.g. 30" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.creditPeriod} onChange={(e) => setForm({...form, creditPeriod: e.target.value})} />
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><CreditCard size={14}/> Account Name</label>
+                                    <input type="text" placeholder="e.g. Hemas Pharmaceuticals PLC" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.accountName} onChange={(e) => setForm({...form, accountName: e.target.value})} />
                                 </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Credit Period (Days)</label>
+                                        <input type="number" required min="0" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.creditPeriod} onChange={(e) => setForm({...form, creditPeriod: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Status</label>
+                                        <select className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm cursor-pointer" value={form.status} onChange={(e) => setForm({...form, status: e.target.value})}>
+                                            <option value="Active">Active</option>
+                                            <option value="Inactive">Inactive</option>
+                                        </select>
+                                    </div>
+                                </div>
+
                                 <div>
-                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Status</label>
-                                    <select className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm cursor-pointer" value={form.status} onChange={(e) => setForm({...form, status: e.target.value})}>
-                                        <option value="Active">Active</option>
-                                        <option value="Inactive">Inactive</option>
-                                    </select>
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><FileText size={14}/> BR / License Number</label>
+                                    <input type="text" placeholder="Optional (Business Registration)" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.brNumber} onChange={(e) => setForm({...form, brNumber: e.target.value})} />
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><FileText size={14}/> BR / License Number</label>
-                                <input type="text" placeholder="Optional (Business Registration)" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.brNumber} onChange={(e) => setForm({...form, brNumber: e.target.value})} />
-                            </div>
-
-                            <button type="submit" disabled={submitting} className="w-full mt-4 bg-sky-500/90 backdrop-blur-md text-white font-bold py-3.5 rounded-2xl shadow-[0_10px_25px_-5px_rgba(2,132,199,0.3)] hover:bg-sky-600 transition-all active:scale-[0.98] text-[15px] cursor-pointer disabled:opacity-50 border border-sky-400/50">
+                            <button type="submit" disabled={submitting} className="w-full mt-6 bg-sky-500/90 backdrop-blur-md text-white font-bold py-3.5 rounded-2xl shadow-[0_10px_25px_-5px_rgba(2,132,199,0.3)] hover:bg-sky-600 transition-all active:scale-[0.98] text-[15px] cursor-pointer disabled:opacity-50 border border-sky-400/50">
                                 {submitting ? 'Saving...' : 'Save Supplier'}
                             </button>
                         </form>

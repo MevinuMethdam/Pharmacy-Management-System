@@ -19,6 +19,30 @@ const Supplier = sequelize.define('Supplier', {
         type: DataTypes.STRING,
         allowNull: false
     },
+    email: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    address: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    officePhone: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    bankName: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    accountNumber: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    accountName: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
     creditPeriod: {
         type: DataTypes.INTEGER,
         defaultValue: 30
@@ -30,6 +54,10 @@ const Supplier = sequelize.define('Supplier', {
     status: {
         type: DataTypes.STRING,
         defaultValue: 'Active'
+    },
+    totalOutstanding: {
+        type: DataTypes.DECIMAL(12, 2),
+        defaultValue: 0.00
     }
 }, {
     tableName: 'suppliers',

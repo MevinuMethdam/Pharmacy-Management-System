@@ -4,7 +4,11 @@ exports.addMedicine = async (req, res) => {
     try {
         console.log("Received Medicine Data:", req.body);
 
-        const { name, genericName, category, batchNumber, quantity, costPrice, sellingPrice, expiryDate, minStockLevel, manufacturer, isControlled } = req.body;
+        const {
+            name, genericName, category, batchNumber, quantity, costPrice, sellingPrice,
+            expiryDate, minStockLevel, manufacturer, isControlled,
+            supplierId, dosage, barcode, rackLocation
+        } = req.body;
 
         if (!name || !batchNumber || !quantity || !sellingPrice || !expiryDate) {
             return res.status(400).json({ error: 'Please fill all required fields!' });
@@ -21,7 +25,12 @@ exports.addMedicine = async (req, res) => {
             expiryDate: new Date(expiryDate),
             minStockLevel: minStockLevel ? Number(minStockLevel) : 10,
             manufacturer,
-            isControlled: isControlled !== undefined ? isControlled : false
+            isControlled: isControlled !== undefined ? isControlled : false,
+
+            supplierId: supplierId || null,
+            dosage: dosage || '',
+            barcode: barcode || '',
+            rackLocation: rackLocation || ''
         });
 
         res.status(201).json({ message: 'Medicine added successfully!', medicine: newMedicine });
@@ -57,7 +66,12 @@ exports.getMedicines = async (req, res) => {
 exports.updateMedicine = async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, genericName, category, batchNumber, quantity, costPrice, sellingPrice, expiryDate, minStockLevel, manufacturer, isControlled } = req.body;
+
+        const {
+            name, genericName, category, batchNumber, quantity, costPrice, sellingPrice,
+            expiryDate, minStockLevel, manufacturer, isControlled,
+            supplierId, dosage, barcode, rackLocation
+        } = req.body;
 
         const medicine = await Medicine.findByPk(id);
         if (!medicine) return res.status(404).json({ error: 'Medicine not found' });
@@ -73,7 +87,12 @@ exports.updateMedicine = async (req, res) => {
             expiryDate: new Date(expiryDate),
             minStockLevel: minStockLevel ? Number(minStockLevel) : 10,
             manufacturer,
-            isControlled: isControlled !== undefined ? isControlled : false
+            isControlled: isControlled !== undefined ? isControlled : false,
+
+            supplierId: supplierId || medicine.supplierId,
+            dosage: dosage || medicine.dosage,
+            barcode: barcode || medicine.barcode,
+            rackLocation: rackLocation || medicine.rackLocation
         });
 
         res.status(200).json({ message: 'Medicine updated successfully!', medicine });

@@ -6,6 +6,7 @@ import ProtectedRoute from './ProtectedRoute';
 import AdminDashboard from '../pages/admin/AdminDashboard';
 import InventoryPage from '../pages/admin/InventoryPage';
 import SuppliersPage from '../pages/admin/SuppliersPage';
+import PurchasesPage from '../pages/admin/PurchasesPage';
 import POSPage from '../pages/pos/POSPage';
 
 import PrescriptionsPage from '../pages/prescriptions/PrescriptionsPage';
@@ -43,6 +44,15 @@ const AppRoutes = () => {
                 element={
                     <ProtectedRoute allowedRoles={['Admin']}>
                         <SuppliersPage />
+                    </ProtectedRoute>
+                }
+            />
+
+            <Route
+                path="/admin/purchases"
+                element={
+                    <ProtectedRoute allowedRoles={['Admin']}>
+                        <PurchasesPage />
                     </ProtectedRoute>
                 }
             />
