@@ -321,46 +321,16 @@ export default function PrescriptionsPage() {
             { name: 'AI Verify', y: statusMap['Pending Verification'], color: '#c084fc' },
             { name: 'Approved', y: statusMap['Approved for POS'], color: '#38bdf8' },
             { name: 'Dispensed', y: statusMap['Dispensed'], color: '#10b981' }
-        ];
+        ].filter(data => data.y > 0);
+
+        const finalData = seriesData.length > 0 ? seriesData : [{ name: 'No Prescriptions', y: 1, color: '#94a3b8' }];
 
         return {
-            chart: {
-                type: 'pie',
-                backgroundColor: 'transparent',
-                height: 320,
-                margin: [10, 10, 10, 10],
-                options3d: {
-                    enabled: true,
-                    alpha: 45,
-                    beta: 0,
-                    depth: 45
-                }
-            },
+            chart: { type: 'pie', backgroundColor: 'transparent', margin: [0, 0, 0, 0], options3d: { enabled: true, alpha: 45, beta: 0, depth: 35 } },
             title: { text: '' },
-            tooltip: {
-                pointFormat: '{series.name}: <b>{point.y}</b>'
-            },
-            plotOptions: {
-                pie: {
-                    innerRadius: 75,
-                    depth: 50,
-                    allowPointSelect: true,
-                    cursor: 'pointer',
-                    size: '95%',
-                    dataLabels: {
-                        enabled: true,
-                        format: '<b>{point.name}</b>: {point.y}',
-                        style: { fontSize: '11px', fontWeight: '600', color: '#1e293b' },
-                        connectorPadding: 5,
-                        crop: false,
-                        overflow: 'allow'
-                    }
-                }
-            },
-            series: [{
-                name: 'Prescriptions',
-                data: seriesData
-            }],
+            tooltip: { pointFormat: '{series.name}: <b>{point.y}</b>' },
+            plotOptions: { pie: { allowPointSelect: true, cursor: 'pointer', depth: 60, center: ['50%', '45%'], size: '95%', dataLabels: { enabled: true, format: '<b>{point.name}</b>: {point.y}', style: { fontSize: '11px', fontWeight: '600', color: '#1e293b' } } } },
+            series: [{ name: 'Prescriptions', data: finalData }],
             credits: { enabled: false }
         };
     }, [prescriptions]);
@@ -403,7 +373,7 @@ export default function PrescriptionsPage() {
                         </div>
                     </div>
 
-                    <div className="bg-white/30 backdrop-blur-2xl p-7 rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 flex flex-col md:flex-row items-center justify-between gap-6 overflow-visible">
+                    <div className="bg-white/30 backdrop-blur-2xl p-8 rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 flex flex-col md:flex-row items-center justify-between gap-6 relative">
                         <div className="w-full md:w-1/3">
                             <div className="flex items-center gap-2.5 mb-2">
                                 <div className="p-2 bg-white/50 text-indigo-600 rounded-xl border border-white/60 shadow-sm">
@@ -413,8 +383,8 @@ export default function PrescriptionsPage() {
                             </div>
                             <p className="text-[13px] text-slate-500 font-medium">Real-time 3D breakdown of prescription fulfillment and verification states.</p>
                         </div>
-                        <div className="h-[320px] w-full md:w-2/3 flex items-center justify-center overflow-visible">
-                            <div className="w-full h-full overflow-visible">
+                        <div className="h-[360px] w-full md:w-2/3 flex items-center justify-center overflow-visible">
+                            <div className="w-full h-full">
                                 <HighchartsReact
                                     highcharts={Highcharts}
                                     options={donutChartOptions}
