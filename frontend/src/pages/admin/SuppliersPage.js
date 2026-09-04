@@ -15,7 +15,6 @@ export default function SuppliersPage() {
     const [editingSupplier, setEditingSupplier] = useState(null);
     const [submitting, setSubmitting] = useState(false);
 
-    // --- NEW: Payment Modal States ---
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [paymentSupplier, setPaymentSupplier] = useState(null);
     const [submittingPayment, setSubmittingPayment] = useState(false);
@@ -124,7 +123,7 @@ export default function SuppliersPage() {
             await axios.post('http://localhost:5000/api/supplier-payments', payload);
             toast.success('Payment recorded and Outstanding Balance updated! 🎉');
             closePaymentModal();
-            fetchSuppliers(); // Refresh table to show new outstanding balance
+            fetchSuppliers();
         } catch (err) {
             toast.error('Failed to record payment');
         } finally {
@@ -166,44 +165,47 @@ export default function SuppliersPage() {
     );
 
     const getChartOptions = () => {
-        const categories = suppliers.map(s => s.companyName);
 
-        const pastelColors = [
-            '#9cb8fc',
-            '#cfa4f5',
-            '#ffb8d1',
-            '#84cbf5',
-            '#dfbdf5',
-            '#ffc7e3',
-            '#a4c8f0',
-            '#cbaacb',
-            '#ffb7b2'
-        ];
+        const sortedSuppliers = [...suppliers].sort((a, b) => (Number(b.creditPeriod) || 0) - (Number(a.creditPeriod) || 0));
 
-        const data = suppliers.map((s, index) => {
+        let displaySuppliers = [];
+
+        if (!searchQuery.trim()) {
+
+            displaySuppliers = sortedSuppliers.slice(0, 10);
+        } else {
+            displaySuppliers = sortedSuppliers.filter(s =>
+                s.companyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                s.repName.toLowerCase().includes(searchQuery.toLowerCase())
+            ).slice(0, 10);
+        }
+
+        const categories = displaySuppliers.map(s => s.companyName);
+        const pastelColors = ['#9cb8fc', '#cfa4f5', '#ffb8d1', '#84cbf5', '#dfbdf5', '#ffc7e3', '#a4c8f0', '#cbaacb', '#ffb7b2'];
+
+        const data = displaySuppliers.map((s, index) => {
             const colorIndex = index % pastelColors.length;
+            const baseColor = pastelColors[colorIndex];
+
             return {
                 y: Number(s.creditPeriod) || 0,
-                color: pastelColors[colorIndex]
+                color: baseColor,
+                borderColor: 'transparent',
+                borderWidth: 0
             };
         });
 
-        const dynamicHeight = Math.max(300, suppliers.length * 60 + 100);
+        const dynamicHeight = Math.max(200, displaySuppliers.length * 45 + 80);
 
         return {
             chart: {
                 type: 'bar',
                 backgroundColor: 'transparent',
                 height: dynamicHeight,
-                style: {
-                    fontFamily: 'Inter, sans-serif',
-                    color: '#475569'
-                },
+                style: { fontFamily: 'Inter, sans-serif', color: '#475569' },
                 spacingBottom: 0
             },
-            title: {
-                text: ''
-            },
+            title: { text: '' },
             xAxis: {
                 categories: categories,
                 title: { text: null },
@@ -222,70 +224,46 @@ export default function SuppliersPage() {
             yAxis: {
                 min: 0,
                 title: { text: null },
-                labels: {
-                    style: {
-                        color: '#94a3b8',
-                        fontWeight: '500',
-                        fontSize: '10px'
-                    },
-                    formatter: function() {
-                        return this.value;
-                    }
-                },
+                labels: { style: { color: '#94a3b8', fontWeight: '500', fontSize: '10px' } },
                 gridLineColor: 'rgba(255,255,255,0.2)',
                 gridLineDashStyle: 'Dash'
             },
             tooltip: {
                 valueSuffix: ' Days',
-                backgroundColor: 'rgba(255,255,255,0.8)',
+                // Removed outside: true so tooltip renders inside SVG bounds to prevent clipping
+                backgroundColor: 'rgba(255,255,255,0.9)',
                 borderColor: 'rgba(255,255,255,0.4)',
-                borderRadius: 16,
-                shadow: {
-                    color: 'rgba(0, 0, 0, 0.08)',
-                    offsetX: 0,
-                    offsetY: 8,
-                    width: 20
-                },
-                style: {
-                    color: '#1e293b',
-                    fontWeight: '600',
-                    fontSize: '13px'
-                }
+                borderRadius: 12,
+                shadow: { color: 'rgba(0, 0, 0, 0.08)', offsetX: 0, offsetY: 8, width: 20 },
+                style: { color: '#1e293b', fontWeight: '600', fontSize: '13px' }
             },
             plotOptions: {
                 bar: {
                     borderRadius: 14,
                     maxPointWidth: 35,
+                    borderWidth: 0,
+                    borderColor: 'transparent',
+                    states: {
+                        hover: {
+                            borderWidth: 0,
+                            borderColor: 'transparent'
+                        }
+                    },
                     dataLabels: {
                         enabled: true,
                         align: 'right',
                         inside: false,
-                        style: {
-                            color: '#475569',
-                            textOutline: 'none',
-                            fontWeight: '600',
-                            fontSize: '11px'
-                        },
-                        formatter: function() {
-                            return this.y;
-                        }
+                        style: { color: '#475569', textOutline: 'none', fontWeight: '600', fontSize: '11px' }
                     },
-                    groupPadding: 0.15,
-                    borderWidth: 0
+                    groupPadding: 0.15
                 }
             },
-            legend: {
-                enabled: false
-            },
-            credits: {
-                enabled: false
-            },
-            series: [{
-                name: 'Credit Period',
-                data: data
-            }]
+            legend: { enabled: false },
+            credits: { enabled: false },
+            series: [{ name: 'Credit Period', data: data }]
         };
     };
+
     return (
         <AdminLayout>
             <div className="relative font-sans z-0 min-h-[calc(100vh-6rem)] bg-slate-50/80 backdrop-blur-[24px] rounded-[32px] border border-white/60 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden p-6 mb-4">
@@ -317,26 +295,6 @@ export default function SuppliersPage() {
                         </button>
                     </div>
 
-                    {suppliers.length > 0 && (
-                        <div className="bg-white/30 backdrop-blur-2xl p-8 rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 flex flex-col gap-4">
-                            <div className="flex items-center gap-2.5 mb-2">
-                                <div className="p-2 bg-white/50 text-sky-600 rounded-xl border border-white/60 shadow-sm">
-                                    <BarChart2 size={20} strokeWidth={2.5} />
-                                </div>
-                                <div>
-                                    <h2 className="text-[17px] font-bold text-[#1e293b] tracking-tight">Supplier Credit Periods</h2>
-                                    <p className="text-[13px] text-slate-500 font-medium mt-0.5">Comparison of credit terms across all active distributors</p>
-                                </div>
-                            </div>
-                            <div className="w-full mt-2">
-                                <HighchartsReact
-                                    highcharts={Highcharts}
-                                    options={getChartOptions()}
-                                />
-                            </div>
-                        </div>
-                    )}
-
                     <div className="bg-white/40 backdrop-blur-xl p-4 rounded-[24px] border border-white/60 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] flex items-center gap-3">
                         <Search size={18} className="text-slate-400 ml-2" />
                         <input
@@ -347,6 +305,33 @@ export default function SuppliersPage() {
                             className="w-full outline-none text-slate-700 text-sm font-medium bg-transparent placeholder-slate-400"
                         />
                     </div>
+
+                    {suppliers.length > 0 && (
+                        <div className="bg-white/30 backdrop-blur-2xl p-8 rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 flex flex-col gap-4">
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="p-2 bg-white/50 text-sky-600 rounded-xl border border-white/60 shadow-sm">
+                                        <BarChart2 size={20} strokeWidth={2.5} />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-[17px] font-bold text-[#1e293b] tracking-tight">
+                                            {searchQuery ? 'Searched Supplier Credit Period' : 'Top 10 Suppliers (Credit Period)'}
+                                        </h2>
+                                        <p className="text-[13px] text-slate-500 font-medium mt-0.5">
+                                            {searchQuery ? 'Showing credit terms for the matching supplier(s)' : 'Showing top 10 distributors with highest credit terms'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="w-full mt-2">
+                                <HighchartsReact
+                                    highcharts={Highcharts}
+                                    options={getChartOptions()}
+                                />
+                            </div>
+                        </div>
+                    )}
 
                     <div className="bg-white/30 backdrop-blur-2xl rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 overflow-hidden mb-4 flex flex-col">
                         <div className="overflow-x-auto px-8 py-4">
@@ -366,7 +351,7 @@ export default function SuppliersPage() {
                                 {loading ? (
                                     <tr><td colSpan="7" className="text-center py-16 text-slate-500 font-medium text-sm">Loading suppliers...</td></tr>
                                 ) : filteredSuppliers.length === 0 ? (
-                                    <tr><td colSpan="7" className="text-center py-16 text-slate-500 font-medium text-sm">No suppliers found. Click "Add Supplier" to add one.</td></tr>
+                                    <tr><td colSpan="7" className="text-center py-16 text-slate-500 font-medium text-sm">No suppliers found matching your criteria.</td></tr>
                                 ) : filteredSuppliers.map((s) => (
                                     <tr key={s.id} className="group hover:bg-white/20 transition-colors border-b border-white/20 last:border-0">
                                         <td className="py-4 align-top pt-5">
@@ -528,7 +513,6 @@ export default function SuppliersPage() {
                                 </div>
                             </div>
 
-                            {/* --- Bank & Terms --- */}
                             <div className="space-y-4 pt-2">
                                 <h3 className="text-[12px] font-extrabold text-sky-600 uppercase tracking-widest border-b border-white pb-2">Bank & Terms</h3>
                                 <div className="grid grid-cols-2 gap-4">
