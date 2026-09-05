@@ -207,8 +207,8 @@ export default function RackLocatorPage() {
 
                 <div className="relative z-10 w-full flex-1 flex flex-col gap-6">
 
-                    <div className="flex flex-col lg:flex-row justify-between items-center gap-4 shrink-0 z-50">
-                        <div className="flex items-center gap-3 w-full lg:w-auto">
+                    <div className="flex justify-between items-center mb-1">
+                        <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-2xl bg-white/60 backdrop-blur-md shadow-sm flex items-center justify-center border border-white/80 shrink-0">
                                 <Navigation size={20} strokeWidth={2.5} className="text-sky-600" />
                             </div>
@@ -217,40 +217,36 @@ export default function RackLocatorPage() {
                                 <p className="text-[13px] font-medium text-slate-500 mt-1.5">Locate medicines directly on realistic digital racks</p>
                             </div>
                         </div>
+                    </div>
 
-                        <div className="w-full lg:w-[400px] bg-white/90 backdrop-blur-xl p-2.5 rounded-[20px] border border-slate-200 shadow-md relative pointer-events-auto transition-all">
-                            <div className="flex items-center gap-3 px-2">
-                                <Search size={18} className="text-slate-400 shrink-0" />
-                                <input
-                                    type="text"
-                                    placeholder="Search medicine to locate..."
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="w-full outline-none text-slate-700 text-sm font-bold bg-transparent placeholder-slate-400"
-                                />
-                                {searchQuery && (
-                                    <button onClick={() => setSearchQuery('')} className="shrink-0 p-1 hover:bg-slate-100 rounded-full transition-colors">
-                                        <X size={16} className="text-slate-400 hover:text-slate-600 cursor-pointer"/>
-                                    </button>
-                                )}
-                            </div>
-
-                            {filteredSuggestions.length > 0 && (
-                                <div className="absolute top-[115%] left-0 w-full bg-white/95 backdrop-blur-3xl border border-slate-200 shadow-2xl rounded-2xl max-h-[300px] overflow-y-auto z-[100] py-2 font-sans">
-                                    {filteredSuggestions.map(m => (
-                                        <div key={m.id} onClick={() => handleSearchSelect(m)} className="px-5 py-3 hover:bg-sky-50/80 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center transition-colors">
-                                            <div>
-                                                <p className="text-sm font-bold text-slate-800">{m.name} <span className="text-[11px] text-slate-500 font-medium">({m.dosage})</span></p>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
+                    <div className="relative w-full z-50">
+                        <div className="bg-white/40 backdrop-blur-xl p-4 rounded-[24px] border border-white/60 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] flex items-center gap-3 transition-all">
+                            <Search size={18} className="text-slate-400 ml-2 shrink-0" />
+                            <input
+                                type="text"
+                                placeholder="Search medicine to locate..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full outline-none text-slate-700 text-sm font-bold bg-transparent placeholder-slate-400"
+                            />
+                            {searchQuery && (
+                                <button onClick={() => setSearchQuery('')} className="shrink-0 p-1.5 mr-1 hover:bg-slate-100 rounded-full transition-colors cursor-pointer">
+                                    <X size={16} className="text-slate-400 hover:text-slate-600"/>
+                                </button>
                             )}
                         </div>
 
-                        <div className="hidden lg:flex bg-white/80 backdrop-blur-md px-5 py-2.5 rounded-full shadow-sm border border-slate-200 font-bold text-sky-600 text-[13px] items-center gap-2">
-                            <Layers size={18}/> Displaying: Rack {String(activeRackId).padStart(2, '0')}
-                        </div>
+                        {filteredSuggestions.length > 0 && (
+                            <div className="absolute top-[115%] left-0 w-full bg-white/95 backdrop-blur-3xl border border-slate-200 shadow-2xl rounded-[24px] max-h-[300px] overflow-y-auto z-[100] py-3 font-sans">
+                                {filteredSuggestions.map(m => (
+                                    <div key={m.id} onClick={() => handleSearchSelect(m)} className="px-6 py-3.5 hover:bg-sky-50/80 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center transition-colors">
+                                        <div>
+                                            <p className="text-sm font-bold text-slate-800">{m.name} <span className="text-[11px] text-slate-500 font-medium">({m.dosage})</span></p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex-1 w-full bg-white/40 backdrop-blur-3xl rounded-[32px] border border-white/80 shadow-[inset_0_0_80px_rgba(203,213,225,0.4)] overflow-hidden relative flex flex-col min-h-[600px]">
@@ -316,12 +312,10 @@ export default function RackLocatorPage() {
                                             opacity = 1;
                                             zIndex = 30;
                                         } else if (isLeft) {
-
                                             transform = 'translate(-50%, -50%) translateX(-65%) translateZ(-250px) rotateY(35deg) scale(0.8)';
                                             opacity = 0.55;
                                             zIndex = 20;
                                         } else if (isRight) {
-
                                             transform = 'translate(-50%, -50%) translateX(65%) translateZ(-250px) rotateY(-35deg) scale(0.8)';
                                             opacity = 0.55;
                                             zIndex = 20;
