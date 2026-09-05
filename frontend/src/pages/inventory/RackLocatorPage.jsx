@@ -70,31 +70,9 @@ const RealisticRack = ({ rackId, medicines, targetLoc, imageIndex, isActive }) =
                             });
 
                             return (
-                                <div key={binNum} className="relative flex-1 flex justify-center items-end h-full px-[2px] pb-[2px]">
+                                <div key={binNum} className="relative flex-1 flex justify-center items-end h-full px-[2px] pb-[3%] group">
                                     {isOccupied && (
-                                        <div
-                                            className={`relative flex items-end justify-center transition-all duration-700 ease-out cursor-pointer w-full h-[75%] max-w-[22px]
-                                                ${isTargetBin && isActive ? 'z-50 scale-[1.35] -translate-y-3' : 'z-10 hover:-translate-y-1.5 hover:scale-110'}
-                                            `}
-                                        >
-                                            {isTargetBin && isActive && (
-                                                <div className="absolute w-[45px] h-[45px] bg-sky-400/60 blur-xl rounded-full z-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none"></div>
-                                            )}
-
-                                            <div
-                                                className={`relative z-10 w-full h-full rounded-[2px] shadow-[inset_-2px_-2px_6px_rgba(0,0,0,0.2),2px_4px_6px_rgba(0,0,0,0.4)] flex flex-col justify-between overflow-hidden 
-                                                ${isTargetBin && isActive
-                                                    ? 'bg-gradient-to-b from-sky-400 to-sky-600 border border-sky-200 shadow-[0_12px_20px_rgba(34,211,238,0.7)]'
-                                                    : 'bg-gradient-to-b from-purple-500 to-purple-700 border border-purple-400 opacity-95 hover:opacity-100'}`}
-                                                style={{
-                                                    transform: 'perspective(150px) rotateX(8deg) rotateY(-3deg)',
-                                                    transformOrigin: 'bottom center'
-                                                }}
-                                            >
-                                                <div className="w-full h-[15%] bg-white/40 border-b border-white/30"></div>
-                                                {isTargetBin && isActive && <div className="absolute top-[35%] left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_8px_white] animate-pulse"></div>}
-                                                <div className="w-[65%] h-[35%] bg-white/30 mx-auto rounded-[2px] mb-1.5"></div>
-                                            </div>
+                                        <div className={`relative flex flex-col items-center justify-end w-full h-[80%] transition-all duration-500 cursor-pointer ${isTargetBin && isActive ? 'z-50' : 'z-10 hover:-translate-y-1 opacity-85 hover:opacity-100'}`}>
 
                                             {isTargetBin && isActive && (
                                                 <div className="absolute -top-12 left-1/2 -translate-x-1/2 flex flex-col items-center animate-bounce z-50 pointer-events-none font-sans">
@@ -104,6 +82,32 @@ const RealisticRack = ({ rackId, medicines, targetLoc, imageIndex, isActive }) =
                                                     <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[7px] border-t-sky-500"></div>
                                                 </div>
                                             )}
+
+                                            {isTargetBin && isActive && (
+                                                <div className="absolute bottom-[5%] w-[80%] h-[120%] bg-gradient-to-t from-sky-400/60 via-sky-400/10 to-transparent blur-[6px] animate-pulse pointer-events-none rounded-t-full"></div>
+                                            )}
+
+                                            <div className={`w-[95%] h-[30%] rounded-[50%] blur-[4px] absolute bottom-0 
+                                                ${isTargetBin && isActive
+                                                ? 'bg-sky-400/80 shadow-[0_0_25px_8px_rgba(56,189,248,0.8)] animate-pulse'
+                                                : 'bg-purple-500/70 shadow-[0_0_15px_4px_rgba(168,85,247,0.6)] group-hover:bg-purple-400/90 group-hover:shadow-[0_0_20px_6px_rgba(168,85,247,0.8)] transition-all'
+                                            }`}>
+                                            </div>
+
+                                            <div className={`w-[50%] h-[15%] rounded-[50%] absolute bottom-[5%] blur-[1px]
+                                                ${isTargetBin && isActive
+                                                ? 'bg-white shadow-[0_0_15px_3px_rgba(255,255,255,1)] animate-pulse'
+                                                : 'bg-purple-200 shadow-[0_0_10px_2px_rgba(216,180,254,1)] group-hover:bg-white'
+                                            }`}>
+                                            </div>
+
+                                            <div className={`w-[60%] h-[2px] absolute bottom-[2%] rounded-full blur-[0.5px]
+                                                ${isTargetBin && isActive
+                                                ? 'bg-sky-200 shadow-[0_0_8px_2px_rgba(56,189,248,1)]'
+                                                : 'bg-purple-300 shadow-[0_0_5px_1px_rgba(168,85,247,0.8)]'
+                                            }`}>
+                                            </div>
+
                                         </div>
                                     )}
                                 </div>
@@ -371,15 +375,15 @@ export default function RackLocatorPage() {
 
                         <div className="absolute bottom-6 right-8 bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-sm border border-slate-200 z-40 flex gap-6 pointer-events-none hidden lg:flex font-sans">
                             <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded bg-cyan-400 border border-cyan-500 shadow-sm"></div>
+                                <div className="w-3.5 h-3.5 rounded-full bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.8)] border border-sky-200"></div>
                                 <span className="text-[11px] font-bold text-slate-600">Target Medicine</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded bg-purple-500 border border-purple-600 shadow-sm"></div>
+                                <div className="w-3.5 h-3.5 rounded-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.8)] border border-purple-300"></div>
                                 <span className="text-[11px] font-bold text-slate-600">Occupied Bin</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded border border-slate-300 bg-slate-100 shadow-sm"></div>
+                                <div className="w-3.5 h-3.5 rounded-full border-2 border-slate-200/80 bg-slate-100/50 shadow-sm"></div>
                                 <span className="text-[11px] font-bold text-slate-600">Empty Space</span>
                             </div>
                         </div>
