@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import AdminLayout from '../../components/layout/AdminLayout';
-import { Search, MapPin, Package, Box, Navigation, Layers, X, ArrowLeft } from 'lucide-react';
+import { Search, MapPin, Package, Box, Navigation, Layers, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
@@ -119,6 +119,7 @@ export default function RackLocatorPage() {
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedMed, setSelectedMed] = useState(null);
+    const [currentRackId, setCurrentRackId] = useState(1);
 
     useEffect(() => {
         const fetchInventory = async () => {
@@ -160,6 +161,18 @@ export default function RackLocatorPage() {
     const handleSearchSelect = (med) => {
         setSelectedMed(med);
         setSearchQuery('');
+        const loc = parseLocation(med.rackLocation);
+        if (loc && loc.rack) {
+            setCurrentRackId(loc.rack);
+        }
+    };
+
+    const handlePrevRack = () => {
+        setCurrentRackId(prev => Math.max(Math.min(...distinctRacks), prev - 1));
+    };
+
+    const handleNextRack = () => {
+        setCurrentRackId(prev => Math.min(Math.max(...distinctRacks), prev + 1));
     };
 
     const filteredSuggestions = searchQuery.length > 1
@@ -217,7 +230,7 @@ export default function RackLocatorPage() {
                         </div>
 
                         <div className="hidden lg:flex bg-white/80 backdrop-blur-md px-5 py-2.5 rounded-full shadow-sm border border-slate-200 font-bold text-sky-600 text-sm items-center gap-2">
-                            <Layers size={18}/> {targetLoc ? `Focused Target: Rack ${targetLoc.rack}` : 'Store Floor Layout'}
+                            <Layers size={18}/> Displaying: Rack {currentRackId}
                         </div>
                     </div>
 
@@ -250,8 +263,8 @@ export default function RackLocatorPage() {
                                         </div>
                                     </div>
 
-                                    <button onClick={() => setSelectedMed(null)} className="w-full py-3.5 mt-4 bg-slate-50 hover:bg-slate-100 text-slate-600 text-[13px] font-bold rounded-2xl transition-colors border border-slate-200 shadow-sm flex items-center justify-center gap-2">
-                                        <X size={16}/> Clear & View All Racks
+                                    <button onClick={() => setSelectedMed(null)} className="w-full py-3.5 mt-4 bg-slate-50 hover:bg-slate-100 text-slate-600 text-[13px] font-bold rounded-2xl transition-colors border border-slate-200 shadow-sm flex items-center justify-center gap-2 cursor-pointer">
+                                        <X size={16}/> Clear Search
                                     </button>
                                 </div>
                             </div>
@@ -263,27 +276,41 @@ export default function RackLocatorPage() {
                                 <span className="text-sky-500 font-bold">Building 3D Racks...</span>
                             </div>
                         ) : (
-                            <div className={`w-full h-full overflow-y-auto overflow-x-hidden hide-scrollbar pt-12 pb-24 transition-all duration-500 ${selectedMed ? 'pl-[380px]' : 'px-8'}`}>
+                            <div className={`w-full h-full flex flex-col items-center justify-center pt-12 pb-24 transition-all duration-500 ${selectedMed ? 'pl-[380px]' : 'px-8'}`}>
 
-                                {targetLoc ? (
-                                    <div className="min-h-full flex flex-col items-center justify-center p-10 animate-in fade-in zoom-in duration-500">
-                                        <Rack3D rackId={targetLoc.rack} targetLoc={targetLoc} medicines={medicines} scale={1.4} />
+                                <div className="flex flex-col items-center justify-center animate-in fade-in zoom-in duration-500 w-full">
 
-                                        <button onClick={() => setSelectedMed(null)} className="mt-24 flex items-center gap-2 px-6 py-3 bg-white/80 border border-slate-200 shadow-sm rounded-xl text-sm font-bold text-slate-600 hover:bg-white transition-colors">
-                                            <ArrowLeft size={16}/> Back to Floor View
+                                    <Rack3D
+                                        rackId={currentRackId}
+                                        targetLoc={selectedMed ? targetLoc : null}
+                                        medicines={medicines}
+                                        scale={1.4}
+                                    />
+
+                                    <div className="mt-24 flex items-center gap-8 bg-white/80 backdrop-blur-xl px-8 py-4 rounded-3xl shadow-sm border border-white/80 relative z-50">
+                                        <button
+                                            onClick={handlePrevRack}
+                                            disabled={currentRackId <= Math.min(...distinctRacks)}
+                                            className="p-3 bg-white border border-slate-200 text-slate-500 rounded-xl hover:text-sky-600 hover:border-sky-200 hover:bg-sky-50 disabled:opacity-40 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-500 transition-all cursor-pointer shadow-sm"
+                                        >
+                                            <ChevronLeft size={24} strokeWidth={2.5}/>
+                                        </button>
+
+                                        <div className="flex flex-col items-center min-w-[140px]">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Current View</span>
+                                            <span className="text-xl font-black text-slate-800">Rack {currentRackId}</span>
+                                        </div>
+
+                                        <button
+                                            onClick={handleNextRack}
+                                            disabled={currentRackId >= Math.max(...distinctRacks)}
+                                            className="p-3 bg-white border border-slate-200 text-slate-500 rounded-xl hover:text-sky-600 hover:border-sky-200 hover:bg-sky-50 disabled:opacity-40 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-500 transition-all cursor-pointer shadow-sm"
+                                        >
+                                            <ChevronRight size={24} strokeWidth={2.5}/>
                                         </button>
                                     </div>
-                                ) : (
-                                    <div className="flex justify-center w-full">
-                                        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-y-24 gap-x-16 max-w-[1400px] w-full justify-items-center">
-                                            {distinctRacks.map(rackId => (
-                                                <div key={rackId} className="flex flex-col items-center justify-center">
-                                                    <Rack3D rackId={rackId} targetLoc={null} medicines={medicines} scale={0.9} />
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
+
+                                </div>
                             </div>
                         )}
 
