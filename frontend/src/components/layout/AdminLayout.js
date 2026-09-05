@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect, useMemo } from 'react';
+import React, { useState, useContext, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import {
@@ -51,6 +51,22 @@ export default function AdminLayout({ children }) {
     const [notifications, setNotifications] = useState([]);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
+
+    // Sidebar Scroll Reference
+    const navRef = useRef(null);
+
+    // Changed to useLayoutEffect to prevent visual flickering/shaking before browser paints
+    useLayoutEffect(() => {
+        const savedScrollPos = sessionStorage.getItem('sidebarScrollPos');
+        if (savedScrollPos && navRef.current) {
+            navRef.current.scrollTop = parseInt(savedScrollPos, 10);
+        }
+    }, []);
+
+    const handleNavScroll = (e) => {
+        // Save the scroll position as the user scrolls
+        sessionStorage.setItem('sidebarScrollPos', e.target.scrollTop);
+    };
 
     useEffect(() => {
         socket.on('receive_notification', (data) => {
@@ -117,7 +133,11 @@ export default function AdminLayout({ children }) {
                     )}
                 </div>
 
-                <nav className="space-y-1.5 px-4 flex-1 overflow-y-auto hide-scrollbar">
+                <nav
+                    ref={navRef}
+                    onScroll={handleNavScroll}
+                    className="space-y-1.5 px-4 flex-1 overflow-y-auto hide-scrollbar"
+                >
                     {ADMIN_LINKS.map(({ to, label, icon: Icon }) => (
                         <NavLink
                             key={to}
