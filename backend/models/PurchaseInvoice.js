@@ -10,12 +10,12 @@ const PurchaseInvoice = sequelize.define('PurchaseInvoice', {
     invoiceNumber: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: true
+        unique: 'idx_unique_invoice_number'
     },
     grnNumber: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: true
+        unique: 'idx_unique_grn_number'
     },
     supplierId: {
         type: DataTypes.INTEGER,
