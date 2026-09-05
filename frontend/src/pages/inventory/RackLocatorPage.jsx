@@ -4,6 +4,8 @@ import { Search, MapPin, Package, Box, Navigation, Layers, X, ChevronLeft, Chevr
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
+import rackImage from '../../assets/pharmacy_rack.png';
+
 const parseLocation = (loc) => {
     if (!loc) return null;
     const match = loc.match(/^([A-Z]{3})-R(\d{2})-S(\d{2})-B(\d{2})$/i);
@@ -16,15 +18,7 @@ const parseLocation = (loc) => {
     };
 };
 
-const Rack3D = ({ rackId, medicines, targetLoc, scale = 1 }) => {
-    const RACK_W = 320;
-    const RACK_H = 280;
-    const RACK_D = 60;
-    const SHELF_H = 50;
-    const BOX_W = 18;
-    const BOX_H = 24;
-    const BOX_D = 20;
-
+const RealisticRack = ({ rackId, medicines, targetLoc }) => {
     const rackMeds = useMemo(() => {
         return medicines.filter(m => {
             const loc = parseLocation(m.rackLocation);
@@ -33,83 +27,70 @@ const Rack3D = ({ rackId, medicines, targetLoc, scale = 1 }) => {
     }, [medicines, rackId]);
 
     return (
-        <div className="relative flex items-center justify-center" style={{ width: RACK_W, height: RACK_H, perspective: '1400px' }}>
-            <div
-                className="relative transition-transform duration-700 ease-out flex items-center justify-center"
-                style={{
-                    width: RACK_W, height: RACK_H,
-                    transformStyle: 'preserve-3d',
-                    transform: `rotateX(15deg) rotateY(-25deg) scale(${scale})`
-                }}
-            >
-                <div className="absolute w-[360px] h-[80px] bg-black/10 blur-xl" style={{ bottom: '-40px', transform: 'rotateX(90deg) translateZ(-20px)' }}></div>
+        <div className="relative flex items-center justify-center w-full max-w-[850px] aspect-[1.45/1] drop-shadow-2xl mx-auto">
 
-                <div className="absolute bg-slate-200 border border-slate-300 shadow-inner" style={{ width: RACK_W, height: RACK_H, transform: `translateZ(-${RACK_D/2}px)` }}>
-                    <div className="absolute top-3 left-4 bg-slate-400 text-white font-black px-2 py-0.5 text-[10px] rounded shadow-sm tracking-widest">RACK {rackId}</div>
-                    <div className="w-full h-full opacity-20" style={{ backgroundImage: 'repeating-linear-gradient(90deg, transparent, transparent 20px, #94a3b8 20px, #94a3b8 22px)' }}></div>
-                </div>
+            <img
+                src={rackImage}
+                alt="Pharmacy Rack"
+                className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+            />
 
-                <div className="absolute bg-slate-400 border border-slate-500" style={{ width: RACK_D, height: RACK_H, left: 0, transform: `translateX(-${RACK_D/2}px) rotateY(-90deg)` }}></div>
-                <div className="absolute bg-slate-100 border border-slate-300" style={{ width: '8px', height: RACK_H, left: 0, transform: `translateZ(${RACK_D/2}px)` }}></div>
+            <div className="absolute top-[5%] left-[6%] bg-teal-600/95 backdrop-blur-md text-white font-black px-4 py-1.5 rounded-lg shadow-lg border border-teal-400 tracking-widest z-20">
+                RACK {String(rackId).padStart(2, '0')}
+            </div>
 
-                <div className="absolute bg-slate-400 border border-slate-500" style={{ width: RACK_D, height: RACK_H, right: 0, transform: `translateX(${RACK_D/2}px) rotateY(90deg)` }}></div>
-                <div className="absolute bg-slate-100 border border-slate-300" style={{ width: '8px', height: RACK_H, right: 0, transform: `translateZ(${RACK_D/2}px)` }}></div>
+            <div className="absolute z-10" style={{
+                top: '16%',
+                bottom: '24%',
+                left: '12.5%',
+                right: '12.5%',
+                display: 'flex',
+                flexDirection: 'column-reverse',
+                justifyContent: 'space-between',
+            }}>
+                {[1, 2, 3, 4, 5].map((shelfNum) => (
+                    <div key={shelfNum} className="flex justify-between items-end w-full h-[18%]">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((binNum) => {
 
-                {[1, 2, 3, 4, 5].map((shelfNum) => {
-                    const bottomPos = (shelfNum - 1) * SHELF_H + 10;
+                            const isTargetBin = targetLoc?.rack === rackId && targetLoc?.shelf === shelfNum && targetLoc?.bin === binNum;
+                            const isOccupied = isTargetBin || rackMeds.some(m => {
+                                const loc = parseLocation(m.rackLocation);
+                                return loc && loc.shelf === shelfNum && loc.bin === binNum;
+                            });
 
-                    return (
-                        <div key={shelfNum} className="absolute w-full" style={{ height: SHELF_H, bottom: bottomPos, transformStyle: 'preserve-3d' }}>
-                            <div className="absolute bg-slate-100 border-t border-slate-300" style={{ width: RACK_W, height: RACK_D, bottom: '-4px', transform: `rotateX(90deg) translateZ(${RACK_D/2 - 4}px)` }}></div>
-                            <div className="absolute bg-sky-500 shadow-sm border-b border-sky-600" style={{ width: RACK_W, height: '8px', bottom: 0, transform: `translateZ(${RACK_D/2}px)` }}></div>
-                            <div className="absolute bg-slate-300 border-b border-slate-400" style={{ width: RACK_W, height: RACK_D, bottom: '4px', transform: `rotateX(-90deg) translateZ(${RACK_D/2 + 4}px)` }}></div>
-                            <div className="absolute bg-white border border-slate-300 text-slate-500 font-black text-[9px] px-1 rounded shadow-md" style={{ left: '-22px', bottom: '6px', transform: `translateZ(${RACK_D/2 + 10}px) rotateY(25deg)` }}>S{shelfNum}</div>
+                            return (
+                                <div key={binNum} className="relative flex-1 flex justify-center items-end h-full px-[2px]">
+                                    {isOccupied && (
+                                        <div
+                                            className={`w-full max-w-[28px] h-[65%] rounded-[4px] shadow-[2px_3px_8px_rgba(0,0,0,0.4)] transition-all duration-700 ease-out mb-1 flex items-center justify-center relative transform
+                                                ${isTargetBin
+                                                ? 'bg-gradient-to-b from-cyan-300 to-sky-500 border-2 border-white z-50 shadow-[0_15px_30px_rgba(34,211,238,0.7)]'
+                                                : 'bg-gradient-to-b from-purple-400 to-purple-600 border border-purple-300 opacity-95 hover:opacity-100 hover:brightness-110 cursor-pointer'
+                                            }
+                                            `}
+                                            style={{
+                                                transform: isTargetBin ? 'scale(1.3) translateY(-14px) perspective(100px) rotateX(5deg)' : 'perspective(100px) rotateX(5deg)'
+                                            }}
+                                        >
+                                            {isTargetBin && <div className="w-2.5 h-2.5 bg-white rounded-full opacity-90 animate-pulse"></div>}
 
-                            {/* BINS */}
-                            <div className="absolute w-full flex justify-evenly px-4 items-end pb-[8px]" style={{ height: '35px', bottom: 0, transformStyle: 'preserve-3d', transform: `translateZ(0px)` }}>
-                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((binNum) => {
-                                    const isTargetBin = targetLoc?.rack === rackId && targetLoc?.shelf === shelfNum && targetLoc?.bin === binNum;
-                                    const isOccupied = isTargetBin || rackMeds.some(m => {
-                                        const loc = parseLocation(m.rackLocation);
-                                        return loc && loc.shelf === shelfNum && loc.bin === binNum;
-                                    });
-
-                                    const colorFront = isTargetBin ? 'bg-sky-400' : 'bg-purple-400';
-                                    const colorSide  = isTargetBin ? 'bg-sky-500' : 'bg-purple-500';
-                                    const colorTop   = isTargetBin ? 'bg-sky-300' : 'bg-purple-300';
-                                    const bColor     = isTargetBin ? 'border-sky-600' : 'border-purple-600';
-
-                                    return (
-                                        <div key={binNum} className="relative flex items-end justify-center" style={{ width: BOX_W, transformStyle: 'preserve-3d' }}>
-                                            {isOccupied && (
-                                                <div
-                                                    className={`relative flex items-center justify-center transition-all duration-700 ${isTargetBin ? 'z-50 scale-125 -translate-y-3' : 'z-10'}`}
-                                                    style={{ width: BOX_W, height: BOX_H, transformStyle: 'preserve-3d' }}
-                                                >
-                                                    <div className={`absolute w-full h-full ${colorFront} ${bColor} border shadow-sm flex items-center justify-center`} style={{ transform: `translateZ(${BOX_D/2}px)` }}>
-                                                        {isTargetBin && <div className="w-1.5 h-1.5 bg-white/50 rounded-full"></div>}
+                                            {isTargetBin && (
+                                                <div className="absolute -top-14 left-1/2 -translate-x-1/2 flex flex-col items-center animate-bounce" style={{ transform: 'rotateX(-5deg)' }}>
+                                                    <div className="bg-sky-500 text-white text-[10px] font-black px-2.5 py-1 rounded-md shadow-xl uppercase tracking-widest border border-sky-300 whitespace-nowrap">
+                                                        Target
                                                     </div>
-                                                    <div className={`absolute w-full h-full ${colorFront} ${bColor} border`} style={{ transform: `translateZ(-${BOX_D/2}px)` }}></div>
-                                                    <div className={`absolute ${colorSide} ${bColor} border`} style={{ width: BOX_D, height: BOX_H, transform: `translateX(${BOX_W/2}px) rotateY(90deg)` }}></div>
-                                                    <div className={`absolute ${colorSide} ${bColor} border`} style={{ width: BOX_D, height: BOX_H, transform: `translateX(-${BOX_W/2}px) rotateY(-90deg)` }}></div>
-                                                    <div className={`absolute ${colorTop} ${bColor} border`} style={{ width: BOX_W, height: BOX_D, transform: `translateY(-${BOX_H/2}px) rotateX(90deg)` }}></div>
-
-                                                    {isTargetBin && (
-                                                        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-[45px] flex flex-col items-center pointer-events-none animate-bounce" style={{ transform: 'rotateX(-15deg) rotateY(25deg)', transformStyle: 'preserve-3d' }}>
-                                                            <div className="bg-sky-500 text-white text-[9px] font-black px-2 py-0.5 rounded shadow-lg mb-0.5 uppercase tracking-widest border border-sky-600">Target</div>
-                                                            <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[7px] border-t-sky-500"></div>
-                                                        </div>
-                                                    )}
+                                                    <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-sky-500"></div>
                                                 </div>
                                             )}
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    );
-                })}
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                ))}
             </div>
+
         </div>
     );
 };
@@ -134,7 +115,7 @@ export default function RackLocatorPage() {
                 setMedicines(validMeds);
             } catch (err) {
                 console.error("Fetch Error:", err);
-                toast.error('Failed to load inventory for 3D Rack Mapping');
+                toast.error('Failed to load inventory for Rack Mapping');
             } finally {
                 setLoading(false);
             }
@@ -194,8 +175,8 @@ export default function RackLocatorPage() {
                                 <Navigation size={20} strokeWidth={2.5} className="text-sky-600" />
                             </div>
                             <div>
-                                <h1 className="text-[26px] font-bold text-[#1e293b] tracking-tight leading-none">3D Pharmacy Floor</h1>
-                                <p className="text-[13px] font-medium text-slate-500 mt-1.5">Locate medicines on realistic digital racks</p>
+                                <h1 className="text-[26px] font-bold text-[#1e293b] tracking-tight leading-none">Pharmacy Store Floor</h1>
+                                <p className="text-[13px] font-medium text-slate-500 mt-1.5">Locate medicines directly on realistic digital racks</p>
                             </div>
                         </div>
 
@@ -273,21 +254,20 @@ export default function RackLocatorPage() {
                         {loading ? (
                             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
                                 <div className="w-8 h-8 border-4 border-sky-100 border-t-sky-500 rounded-full animate-spin"></div>
-                                <span className="text-sky-500 font-bold">Building 3D Racks...</span>
+                                <span className="text-sky-500 font-bold">Building Digital Racks...</span>
                             </div>
                         ) : (
-                            <div className={`w-full h-full flex flex-col items-center justify-center pt-12 pb-24 transition-all duration-500 ${selectedMed ? 'pl-[380px]' : 'px-8'}`}>
+                            <div className={`w-full h-full flex flex-col items-center justify-center pt-6 pb-20 transition-all duration-500 ${selectedMed ? 'pl-[380px]' : 'px-8'}`}>
 
                                 <div className="flex flex-col items-center justify-center animate-in fade-in zoom-in duration-500 w-full">
 
-                                    <Rack3D
+                                    <RealisticRack
                                         rackId={currentRackId}
                                         targetLoc={selectedMed ? targetLoc : null}
                                         medicines={medicines}
-                                        scale={1.4}
                                     />
 
-                                    <div className="mt-24 flex items-center gap-8 bg-white/80 backdrop-blur-xl px-8 py-4 rounded-3xl shadow-sm border border-white/80 relative z-50">
+                                    <div className="mt-16 flex items-center gap-8 bg-white/80 backdrop-blur-xl px-8 py-4 rounded-3xl shadow-sm border border-white/80 relative z-50">
                                         <button
                                             onClick={handlePrevRack}
                                             disabled={currentRackId <= Math.min(...distinctRacks)}
@@ -298,7 +278,7 @@ export default function RackLocatorPage() {
 
                                         <div className="flex flex-col items-center min-w-[140px]">
                                             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Current View</span>
-                                            <span className="text-xl font-black text-slate-800">Rack {currentRackId}</span>
+                                            <span className="text-xl font-black text-slate-800">Rack {String(currentRackId).padStart(2, '0')}</span>
                                         </div>
 
                                         <button
@@ -316,15 +296,15 @@ export default function RackLocatorPage() {
 
                         <div className="absolute bottom-6 right-8 bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-sm border border-slate-200 z-40 flex gap-6 pointer-events-none">
                             <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded bg-sky-400 border border-sky-600"></div>
+                                <div className="w-4 h-4 rounded bg-cyan-400 border border-cyan-500 shadow-sm"></div>
                                 <span className="text-[11px] font-bold text-slate-600">Target Medicine</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded bg-purple-400 border border-purple-600"></div>
+                                <div className="w-4 h-4 rounded bg-purple-500 border border-purple-600 shadow-sm"></div>
                                 <span className="text-[11px] font-bold text-slate-600">Occupied Bin</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded border border-slate-300 bg-slate-100"></div>
+                                <div className="w-4 h-4 rounded border border-slate-300 bg-slate-100 shadow-sm"></div>
                                 <span className="text-[11px] font-bold text-slate-600">Empty Space</span>
                             </div>
                         </div>
