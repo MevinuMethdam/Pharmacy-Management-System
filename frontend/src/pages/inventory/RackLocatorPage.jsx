@@ -10,7 +10,22 @@ import rackImg3 from '../../assets/pharmacy_rack03.png';
 import rackImg4 from '../../assets/pharmacy_rack04.png';
 import rackImg5 from '../../assets/pharmacy_rack05.png';
 
+import pic1 from '../../assets/Pic1.png';
+import pic2 from '../../assets/Pic2.png';
+import pic3 from '../../assets/Pic3.jpg';
+import pic4 from '../../assets/Pic4.png';
+import pic5 from '../../assets/Pic5.png';
+
 const RACK_IMAGES = [rackImg1, rackImg2, rackImg3, rackImg4, rackImg5];
+
+const getCategoryImage = (category) => {
+    const cat = (category || '').toLowerCase();
+    if (cat.includes('cap')) return pic2;
+    if (cat.includes('syr') || cat.includes('liq')) return pic3;
+    if (cat.includes('inj') || cat.includes('vial') || cat.includes('amp')) return pic4;
+    if (cat.includes('cre') || cat.includes('oint') || cat.includes('gel') || cat.includes('lot')) return pic5;
+    return pic1;
+};
 
 const parseLocation = (loc) => {
     if (!loc) return null;
@@ -257,14 +272,27 @@ export default function RackLocatorPage() {
 
                         {selectedMed && (
                             <div className="absolute top-6 left-6 w-[350px] flex flex-col gap-4 z-[60] pointer-events-none font-sans">
-                                <div className="bg-white/90 backdrop-blur-2xl p-6 rounded-[32px] border border-slate-200 shadow-2xl flex flex-col pointer-events-auto animate-in fade-in slide-in-from-left-8 duration-300">
-                                    <div className="w-14 h-14 bg-sky-100 border border-sky-200 rounded-2xl flex items-center justify-center mb-4 shadow-sm">
-                                        <Package className="w-7 h-7 text-sky-600" />
-                                    </div>
-                                    <h2 className="text-[20px] font-bold text-slate-800 tracking-tight leading-tight">{selectedMed.name}</h2>
-                                    <p className="text-[13px] font-bold text-slate-500 mb-6">{selectedMed.dosage}</p>
 
-                                    <div className="space-y-3">
+                                <div className="bg-white/95 backdrop-blur-2xl p-6 rounded-[32px] border border-slate-200 shadow-2xl flex flex-col pointer-events-auto animate-in fade-in slide-in-from-left-8 duration-300 relative overflow-hidden">
+
+                                    <div className="absolute top-0 left-0 w-full h-[180px] z-0 pointer-events-none overflow-hidden rounded-t-[32px]">
+                                        <img
+                                            src={getCategoryImage(selectedMed.category)}
+                                            alt="Category Background"
+                                            className="w-full h-full object-cover object-right opacity-80 blur-[1px] saturate-150"
+                                        />
+
+                                        <div className="absolute top-0 left-0 w-[80%] h-full bg-gradient-to-r from-white via-white/90 to-transparent backdrop-blur-[3px]"></div>
+
+                                        <div className="absolute inset-0 bg-gradient-to-t from-white via-white/60 to-transparent"></div>
+                                    </div>
+
+                                    <div className="relative z-10 flex flex-col mb-6 mt-6">
+                                        <h2 className="text-[24px] font-bold text-slate-800 tracking-tight leading-tight">{selectedMed.name}</h2>
+                                        <p className="text-[14px] font-bold text-slate-600 mt-1">{selectedMed.dosage}</p>
+                                    </div>
+
+                                    <div className="relative z-10 space-y-3">
                                         <div className="flex justify-between items-center p-4 bg-white/60 rounded-2xl border border-slate-100 shadow-sm">
                                             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5"><Layers size={14}/> Rack Code</span>
                                             <span className="text-[14px] font-bold text-slate-800">{targetLoc.category}-R{String(targetLoc.rack).padStart(2,'0')}</span>
@@ -282,7 +310,7 @@ export default function RackLocatorPage() {
                                         </div>
                                     </div>
 
-                                    <button onClick={() => setSelectedMed(null)} className="w-full py-3.5 mt-4 bg-slate-50 hover:bg-slate-100 text-slate-600 text-[13px] font-bold rounded-2xl transition-colors border border-slate-200 shadow-sm flex items-center justify-center gap-2 cursor-pointer">
+                                    <button onClick={() => setSelectedMed(null)} className="w-full py-3.5 mt-4 bg-slate-50 hover:bg-slate-100 text-slate-600 text-[13px] font-bold rounded-2xl transition-colors border border-slate-200 shadow-sm flex items-center justify-center gap-2 cursor-pointer relative z-10">
                                         <X size={16}/> Clear Search
                                     </button>
                                 </div>
@@ -295,7 +323,7 @@ export default function RackLocatorPage() {
                                 <span className="text-sky-500 font-bold text-[13px]">Building 3D Racks...</span>
                             </div>
                         ) : (
-                            <div className={`w-full h-full flex flex-col items-center justify-center relative transition-all duration-500 pb-16 ${selectedMed ? 'pl-[350px]' : ''}`}>
+                            <div className={`w-full h-full flex flex-col items-center justify-center relative transition-all duration-500 pb-20 ${selectedMed ? 'pl-[350px]' : ''}`}>
 
                                 <div className="absolute top-[82%] left-1/2 -translate-x-1/2 w-[70%] max-w-[800px] h-[40px] bg-slate-400/50 blur-[24px] rounded-[100%] pointer-events-none z-0 transition-all duration-500"></div>
 
@@ -347,47 +375,50 @@ export default function RackLocatorPage() {
                                             </div>
                                         );
                                     })}
-                                </div>
 
-                                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-white/95 backdrop-blur-xl px-8 py-3.5 rounded-[24px] shadow-[0_10px_30px_rgba(0,0,0,0.08)] border border-white relative z-[60] font-sans">
-                                    <button
-                                        onClick={handlePrevRack}
-                                        className="p-3 bg-white border border-slate-200 text-slate-500 rounded-xl hover:text-sky-600 hover:border-sky-200 hover:bg-sky-50 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
-                                    >
-                                        <ChevronLeft size={24} strokeWidth={2.5}/>
-                                    </button>
+                                    <div className="absolute -bottom-16 left-1/2 -translate-x-1/2 flex flex-col items-center gap-3.5 z-[60] font-sans w-max">
 
-                                    <div className="flex flex-col items-center min-w-[140px]">
-                                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Current View</span>
-                                        <span className="text-[17px] font-bold text-slate-800">Rack {String(activeRackId).padStart(2, '0')}</span>
+                                        <div className="flex items-center gap-8 bg-white/95 backdrop-blur-xl px-8 py-3.5 rounded-[24px] shadow-[0_10px_30px_rgba(0,0,0,0.08)] border border-white">
+                                            <button
+                                                onClick={handlePrevRack}
+                                                className="p-3 bg-white border border-slate-200 text-slate-500 rounded-xl hover:text-sky-600 hover:border-sky-200 hover:bg-sky-50 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+                                            >
+                                                <ChevronLeft size={24} strokeWidth={2.5}/>
+                                            </button>
+
+                                            <div className="flex flex-col items-center min-w-[140px]">
+                                                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Current View</span>
+                                                <span className="text-[17px] font-bold text-slate-800">Rack {String(activeRackId).padStart(2, '0')}</span>
+                                            </div>
+
+                                            <button
+                                                onClick={handleNextRack}
+                                                className="p-3 bg-white border border-slate-200 text-slate-500 rounded-xl hover:text-sky-600 hover:border-sky-200 hover:bg-sky-50 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+                                            >
+                                                <ChevronRight size={24} strokeWidth={2.5}/>
+                                            </button>
+                                        </div>
+
+                                        <div className="bg-white/90 backdrop-blur-md px-6 py-2.5 rounded-[20px] shadow-sm border border-slate-200 flex items-center justify-center gap-6 pointer-events-none w-max">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-3.5 h-3.5 rounded-full bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.8)] border border-sky-200"></div>
+                                                <span className="text-[11px] font-bold text-slate-600">Target Medicine</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-3.5 h-3.5 rounded-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.8)] border border-purple-300"></div>
+                                                <span className="text-[11px] font-bold text-slate-600">Occupied Bin</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-3.5 h-3.5 rounded-full border-2 border-slate-200/80 bg-slate-100/50 shadow-sm"></div>
+                                                <span className="text-[11px] font-bold text-slate-600">Empty Space</span>
+                                            </div>
+                                        </div>
+
                                     </div>
-
-                                    <button
-                                        onClick={handleNextRack}
-                                        className="p-3 bg-white border border-slate-200 text-slate-500 rounded-xl hover:text-sky-600 hover:border-sky-200 hover:bg-sky-50 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
-                                    >
-                                        <ChevronRight size={24} strokeWidth={2.5}/>
-                                    </button>
                                 </div>
 
                             </div>
                         )}
-
-                        <div className="absolute bottom-6 right-8 bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-sm border border-slate-200 z-40 flex gap-6 pointer-events-none hidden lg:flex font-sans">
-                            <div className="flex items-center gap-2">
-                                <div className="w-3.5 h-3.5 rounded-full bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.8)] border border-sky-200"></div>
-                                <span className="text-[11px] font-bold text-slate-600">Target Medicine</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <div className="w-3.5 h-3.5 rounded-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.8)] border border-purple-300"></div>
-                                <span className="text-[11px] font-bold text-slate-600">Occupied Bin</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <div className="w-3.5 h-3.5 rounded-full border-2 border-slate-200/80 bg-slate-100/50 shadow-sm"></div>
-                                <span className="text-[11px] font-bold text-slate-600">Empty Space</span>
-                            </div>
-                        </div>
-
                     </div>
                 </div>
             </div>
