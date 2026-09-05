@@ -4,7 +4,13 @@ import { Search, MapPin, Package, Box, Navigation, Layers, X, ChevronLeft, Chevr
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
-import rackImage from '../../assets/pharmacy_rack.png';
+import rackImg1 from '../../assets/pharmacy_rack.png';
+import rackImg2 from '../../assets/pharmacy_rack02.png';
+import rackImg3 from '../../assets/pharmacy_rack03.png';
+import rackImg4 from '../../assets/pharmacy_rack04.png';
+import rackImg5 from '../../assets/pharmacy_rack05.png';
+
+const RACK_IMAGES = [rackImg1, rackImg2, rackImg3, rackImg4, rackImg5];
 
 const parseLocation = (loc) => {
     if (!loc) return null;
@@ -18,7 +24,8 @@ const parseLocation = (loc) => {
     };
 };
 
-const RealisticRack = ({ rackId, medicines, targetLoc }) => {
+const RealisticRack = ({ rackId, medicines, targetLoc, imageIndex, isActive }) => {
+
     const rackMeds = useMemo(() => {
         return medicines.filter(m => {
             const loc = parseLocation(m.rackLocation);
@@ -26,90 +33,97 @@ const RealisticRack = ({ rackId, medicines, targetLoc }) => {
         });
     }, [medicines, rackId]);
 
-    return (
-        <div className="flex flex-col items-center w-full mx-auto">
+    const bgImage = RACK_IMAGES[imageIndex % RACK_IMAGES.length];
 
-            <div className="bg-white/90 backdrop-blur-md px-6 py-2.5 rounded-full shadow-sm border border-slate-200 text-slate-700 font-black text-[14px] flex items-center gap-2 z-20 mb-6 tracking-widest uppercase">
-                <Layers className="w-4 h-4 text-sky-500" /> RACK {String(rackId).padStart(2, '0')}
+    return (
+        <div className="relative w-full h-full flex flex-col items-center justify-center">
+
+            <div className={`absolute -top-14 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-md px-6 py-2.5 rounded-full shadow-lg border border-slate-200 font-black text-[15px] flex items-center gap-2 z-30 tracking-widest uppercase transition-all duration-700 ${isActive ? 'text-slate-800 scale-100' : 'text-slate-400 scale-90 opacity-0'}`}>
+                <Layers className={`w-5 h-5 ${isActive ? 'text-sky-500' : 'text-slate-300'}`} /> RACK {String(rackId).padStart(2, '0')}
             </div>
 
-            <div className="relative flex items-center justify-center w-full max-w-[650px] aspect-[1.45/1] drop-shadow-2xl">
+            <img
+                src={bgImage}
+                alt={`Rack ${rackId}`}
+                className="w-full h-auto object-contain pointer-events-none drop-shadow-2xl"
+                style={{ backfaceVisibility: 'hidden' }}
+            />
 
-                <img
-                    src={rackImage}
-                    alt="Pharmacy Rack"
-                    className="absolute inset-0 w-full h-full object-contain pointer-events-none"
-                />
+            <div className="absolute z-20" style={{
+                top: '22%',
+                bottom: '12%',
+                left: '11.5%',
+                right: '11.5%',
+                display: 'flex',
+                flexDirection: 'column-reverse',
+                justifyContent: 'space-between',
+                transform: 'translateZ(2px)'
+            }}>
+                {[1, 2, 3, 4, 5].map((shelfNum) => (
+                    <div key={shelfNum} className="flex justify-between items-end w-full h-[18%] mb-[0.2%]">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((binNum) => {
 
-                <div className="absolute z-10" style={{
-                    top: '15%',
-                    bottom: '21%',
-                    left: '12%',
-                    right: '12%',
-                    display: 'flex',
-                    flexDirection: 'column-reverse',
-                    justifyContent: 'space-between',
-                }}>
-                    {[1, 2, 3, 4, 5].map((shelfNum) => (
-                        <div key={shelfNum} className="flex justify-between items-end w-full h-[18%]">
-                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((binNum) => {
+                            const isTargetBin = targetLoc?.rack === rackId && targetLoc?.shelf === shelfNum && targetLoc?.bin === binNum;
+                            const isOccupied = isTargetBin || rackMeds.some(m => {
+                                const loc = parseLocation(m.rackLocation);
+                                return loc && loc.shelf === shelfNum && loc.bin === binNum;
+                            });
 
-                                const isTargetBin = targetLoc?.rack === rackId && targetLoc?.shelf === shelfNum && targetLoc?.bin === binNum;
-                                const isOccupied = isTargetBin || rackMeds.some(m => {
-                                    const loc = parseLocation(m.rackLocation);
-                                    return loc && loc.shelf === shelfNum && loc.bin === binNum;
-                                });
+                            return (
+                                <div key={binNum} className="relative flex-1 flex justify-center items-end h-full px-[2px] pb-[2px]">
+                                    {isOccupied && (
+                                        <div
+                                            className={`relative flex items-end justify-center transition-all duration-700 ease-out cursor-pointer w-full h-[75%] max-w-[22px]
+                                                ${isTargetBin && isActive ? 'z-50 scale-[1.35] -translate-y-3' : 'z-10 hover:-translate-y-1.5 hover:scale-110'}
+                                            `}
+                                        >
+                                            {isTargetBin && isActive && (
+                                                <div className="absolute w-[45px] h-[45px] bg-sky-400/60 blur-xl rounded-full z-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none"></div>
+                                            )}
 
-                                return (
-                                    <div key={binNum} className="relative flex-1 flex justify-center items-end h-full px-[2px] pb-[1px]">
-                                        {isOccupied && (
                                             <div
-                                                className={`relative flex items-end justify-center transition-all duration-700 ease-out cursor-pointer w-full h-[65%] max-w-[24px]
-                                                    ${isTargetBin ? 'z-50 scale-[1.3] -translate-y-5' : 'z-10 hover:-translate-y-1.5 hover:scale-110'}
-                                                `}
+                                                className={`relative z-10 w-full h-full rounded-[2px] shadow-[inset_-2px_-2px_6px_rgba(0,0,0,0.2),2px_4px_6px_rgba(0,0,0,0.4)] flex flex-col justify-between overflow-hidden 
+                                                ${isTargetBin && isActive
+                                                    ? 'bg-gradient-to-b from-sky-400 to-sky-600 border border-sky-200 shadow-[0_12px_20px_rgba(34,211,238,0.7)]'
+                                                    : 'bg-gradient-to-b from-purple-500 to-purple-700 border border-purple-400 opacity-95 hover:opacity-100'}`}
+                                                style={{
+                                                    transform: 'perspective(150px) rotateX(8deg) rotateY(-3deg)',
+                                                    transformOrigin: 'bottom center'
+                                                }}
                                             >
-                                                {isTargetBin && (
-                                                    <div className="absolute w-[45px] h-[45px] bg-sky-400/50 blur-xl rounded-full z-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none"></div>
-                                                )}
-
-                                                <div
-                                                    className={`relative z-10 w-full h-full rounded-[3px] shadow-[2px_3px_5px_rgba(0,0,0,0.3)] border border-white/50 overflow-hidden flex flex-col justify-between 
-                                                    ${isTargetBin ? 'bg-gradient-to-b from-sky-300 to-sky-500 shadow-[0_10px_20px_rgba(34,211,238,0.6)]' : 'bg-gradient-to-b from-purple-400 to-purple-600 opacity-95'}`}
-                                                >
-                                                    <div className="w-full h-[20%] bg-white/30 border-b border-white/20"></div>
-
-                                                    {isTargetBin && <div className="absolute top-[35%] left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_8px_white] animate-pulse"></div>}
-
-                                                    <div className="w-[60%] h-[30%] bg-white/20 mx-auto rounded-[1px] mb-1.5"></div>
-                                                </div>
-
-                                                {isTargetBin && (
-                                                    <div className="absolute -top-11 left-1/2 -translate-x-1/2 flex flex-col items-center animate-bounce z-50 pointer-events-none">
-                                                        <div className="bg-sky-500 text-white text-[9px] font-black px-2 py-0.5 rounded shadow-xl uppercase tracking-widest border border-sky-300 whitespace-nowrap">
-                                                            Target
-                                                        </div>
-                                                        <div className="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[6px] border-t-sky-500"></div>
-                                                    </div>
-                                                )}
+                                                <div className="w-full h-[15%] bg-white/40 border-b border-white/30"></div>
+                                                {isTargetBin && isActive && <div className="absolute top-[35%] left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_8px_white] animate-pulse"></div>}
+                                                <div className="w-[65%] h-[35%] bg-white/30 mx-auto rounded-[2px] mb-1.5"></div>
                                             </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    ))}
-                </div>
+
+                                            {isTargetBin && isActive && (
+                                                <div className="absolute -top-12 left-1/2 -translate-x-1/2 flex flex-col items-center animate-bounce z-50 pointer-events-none">
+                                                    <div className="bg-sky-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded shadow-xl uppercase tracking-widest border border-sky-300 whitespace-nowrap">
+                                                        Target
+                                                    </div>
+                                                    <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[7px] border-t-sky-500"></div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                ))}
             </div>
         </div>
     );
 };
+
 
 export default function RackLocatorPage() {
     const [medicines, setMedicines] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedMed, setSelectedMed] = useState(null);
-    const [currentRackId, setCurrentRackId] = useState(1);
+
+    const [currentIndex, setCurrentIndex] = useState(0);
 
     useEffect(() => {
         const fetchInventory = async () => {
@@ -148,26 +162,41 @@ export default function RackLocatorPage() {
         return sortedRacks.sort((a, b) => a - b);
     }, [medicines]);
 
+    const N = distinctRacks.length;
+
+    const getRelativeOffset = (index) => {
+        const actualCurrent = ((currentIndex % N) + N) % N;
+        let diff = index - actualCurrent;
+        if (diff > N / 2) diff -= N;
+        if (diff < -N / 2) diff += N;
+        return diff;
+    };
+
     const handleSearchSelect = (med) => {
         setSelectedMed(med);
         setSearchQuery('');
         const loc = parseLocation(med.rackLocation);
         if (loc && loc.rack) {
-            setCurrentRackId(loc.rack);
+            const targetIndex = distinctRacks.indexOf(loc.rack);
+            if (targetIndex !== -1) {
+                const actualIndex = ((currentIndex % N) + N) % N;
+                let diff = targetIndex - actualIndex;
+                if (diff > N / 2) diff -= N;
+                if (diff < -N / 2) diff += N;
+
+                setCurrentIndex(prev => prev + diff);
+            }
         }
     };
 
-    const handlePrevRack = () => {
-        setCurrentRackId(prev => Math.max(Math.min(...distinctRacks), prev - 1));
-    };
-
-    const handleNextRack = () => {
-        setCurrentRackId(prev => Math.min(Math.max(...distinctRacks), prev + 1));
-    };
+    const handlePrevRack = () => setCurrentIndex(prev => prev - 1);
+    const handleNextRack = () => setCurrentIndex(prev => prev + 1);
 
     const filteredSuggestions = searchQuery.length > 1
         ? medicines.filter(m => m.name.toLowerCase().includes(searchQuery.toLowerCase()) || (m.barcode && m.barcode.includes(searchQuery)))
         : [];
+
+    const activeRackId = distinctRacks[((currentIndex % N) + N) % N];
 
     return (
         <AdminLayout>
@@ -220,14 +249,14 @@ export default function RackLocatorPage() {
                         </div>
 
                         <div className="hidden lg:flex bg-white/80 backdrop-blur-md px-5 py-2.5 rounded-full shadow-sm border border-slate-200 font-bold text-sky-600 text-sm items-center gap-2">
-                            <Layers size={18}/> Displaying: Rack {currentRackId}
+                            <Layers size={18}/> Displaying: Rack {String(activeRackId).padStart(2, '0')}
                         </div>
                     </div>
 
                     <div className="flex-1 w-full bg-white/40 backdrop-blur-3xl rounded-[32px] border border-white/80 shadow-[inset_0_0_80px_rgba(203,213,225,0.4)] overflow-hidden relative flex flex-col min-h-[600px]">
 
                         {selectedMed && (
-                            <div className="absolute top-6 left-6 w-[350px] flex flex-col gap-4 z-40 pointer-events-none">
+                            <div className="absolute top-6 left-6 w-[350px] flex flex-col gap-4 z-[60] pointer-events-none">
                                 <div className="bg-white/90 backdrop-blur-2xl p-6 rounded-[32px] border border-slate-200 shadow-2xl flex flex-col pointer-events-auto animate-in fade-in slide-in-from-left-8 duration-300">
                                     <div className="w-14 h-14 bg-sky-100 border border-sky-200 rounded-2xl flex items-center justify-center mb-4 shadow-sm">
                                         <Package className="w-7 h-7 text-sky-600" />
@@ -261,49 +290,92 @@ export default function RackLocatorPage() {
                         )}
 
                         {loading ? (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-50">
                                 <div className="w-8 h-8 border-4 border-sky-100 border-t-sky-500 rounded-full animate-spin"></div>
-                                <span className="text-sky-500 font-bold">Building Digital Racks...</span>
+                                <span className="text-sky-500 font-bold">Building 3D Racks...</span>
                             </div>
                         ) : (
-                            <div className={`w-full h-full flex flex-col items-center justify-center pt-10 pb-20 transition-all duration-500 ${selectedMed ? 'pl-[380px]' : 'px-8'}`}>
+                            <div className={`w-full h-full flex flex-col items-center justify-center relative transition-all duration-500 pb-16 ${selectedMed ? 'pl-[350px]' : ''}`}>
 
-                                <div className="flex flex-col items-center justify-center animate-in fade-in zoom-in duration-500 w-full">
+                                <div className="absolute top-[82%] left-1/2 -translate-x-1/2 w-[70%] max-w-[800px] h-[40px] bg-slate-400/50 blur-[24px] rounded-[100%] pointer-events-none z-0 transition-all duration-500"></div>
 
-                                    <RealisticRack
-                                        rackId={currentRackId}
-                                        targetLoc={selectedMed ? targetLoc : null}
-                                        medicines={medicines}
-                                    />
+                                <div className="relative flex items-center justify-center w-full h-[500px]" style={{ perspective: '1200px' }}>
 
-                                    <div className="mt-12 flex items-center gap-8 bg-white/80 backdrop-blur-xl px-8 py-4 rounded-3xl shadow-sm border border-white/80 relative z-50">
-                                        <button
-                                            onClick={handlePrevRack}
-                                            disabled={currentRackId <= Math.min(...distinctRacks)}
-                                            className="p-3 bg-white border border-slate-200 text-slate-500 rounded-xl hover:text-sky-600 hover:border-sky-200 hover:bg-sky-50 disabled:opacity-40 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-500 transition-all cursor-pointer shadow-sm"
-                                        >
-                                            <ChevronLeft size={24} strokeWidth={2.5}/>
-                                        </button>
+                                    {distinctRacks.map((rackId, index) => {
+                                        const offset = getRelativeOffset(index);
+                                        const isCenter = offset === 0;
+                                        const isLeft = offset === -1;
+                                        const isRight = offset === 1;
 
-                                        <div className="flex flex-col items-center min-w-[140px]">
-                                            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Current View</span>
-                                            <span className="text-xl font-black text-slate-800">Rack {String(currentRackId).padStart(2, '0')}</span>
-                                        </div>
+                                        let transform = 'translate(-50%, -50%) translateZ(-800px) scale(0.4)';
+                                        let opacity = 0;
+                                        let zIndex = 0;
 
-                                        <button
-                                            onClick={handleNextRack}
-                                            disabled={currentRackId >= Math.max(...distinctRacks)}
-                                            className="p-3 bg-white border border-slate-200 text-slate-500 rounded-xl hover:text-sky-600 hover:border-sky-200 hover:bg-sky-50 disabled:opacity-40 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-500 transition-all cursor-pointer shadow-sm"
-                                        >
-                                            <ChevronRight size={24} strokeWidth={2.5}/>
-                                        </button>
+                                        if (isCenter) {
+                                            transform = 'translate(-50%, -50%) translateX(0px) translateZ(0px) rotateY(0deg) scale(1)';
+                                            opacity = 1;
+                                            zIndex = 30;
+                                        } else if (isLeft) {
+
+                                            transform = 'translate(-50%, -50%) translateX(-65%) translateZ(-250px) rotateY(35deg) scale(0.8)';
+                                            opacity = 0.55;
+                                            zIndex = 20;
+                                        } else if (isRight) {
+
+                                            transform = 'translate(-50%, -50%) translateX(65%) translateZ(-250px) rotateY(-35deg) scale(0.8)';
+                                            opacity = 0.55;
+                                            zIndex = 20;
+                                        }
+
+                                        return (
+                                            <div
+                                                key={rackId}
+                                                className="absolute top-1/2 left-1/2 w-full max-w-[460px] transition-all duration-700 ease-[cubic-bezier(0.25,0.1,0.25,1)]"
+                                                style={{
+                                                    transform,
+                                                    opacity,
+                                                    zIndex,
+                                                    transformStyle: 'preserve-3d',
+                                                    pointerEvents: isCenter ? 'auto' : 'none'
+                                                }}
+                                            >
+                                                <RealisticRack
+                                                    rackId={rackId}
+                                                    targetLoc={selectedMed ? targetLoc : null}
+                                                    medicines={medicines}
+                                                    imageIndex={index}
+                                                    isActive={isCenter}
+                                                />
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-white/95 backdrop-blur-xl px-8 py-3.5 rounded-[24px] shadow-[0_10px_30px_rgba(0,0,0,0.08)] border border-white relative z-[60]">
+                                    <button
+                                        onClick={handlePrevRack}
+                                        className="p-3 bg-white border border-slate-200 text-slate-500 rounded-xl hover:text-sky-600 hover:border-sky-200 hover:bg-sky-50 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+                                    >
+                                        <ChevronLeft size={24} strokeWidth={2.5}/>
+                                    </button>
+
+                                    <div className="flex flex-col items-center min-w-[140px]">
+                                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Current View</span>
+                                        <span className="text-xl font-black text-slate-800">Rack {String(activeRackId).padStart(2, '0')}</span>
                                     </div>
 
+                                    <button
+                                        onClick={handleNextRack}
+                                        className="p-3 bg-white border border-slate-200 text-slate-500 rounded-xl hover:text-sky-600 hover:border-sky-200 hover:bg-sky-50 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+                                    >
+                                        <ChevronRight size={24} strokeWidth={2.5}/>
+                                    </button>
                                 </div>
+
                             </div>
                         )}
 
-                        <div className="absolute bottom-6 right-8 bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-sm border border-slate-200 z-40 flex gap-6 pointer-events-none">
+                        <div className="absolute bottom-6 right-8 bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-sm border border-slate-200 z-40 flex gap-6 pointer-events-none hidden lg:flex">
                             <div className="flex items-center gap-2">
                                 <div className="w-4 h-4 rounded bg-cyan-400 border border-cyan-500 shadow-sm"></div>
                                 <span className="text-[11px] font-bold text-slate-600">Target Medicine</span>
