@@ -17,13 +17,14 @@ const parseLocation = (loc) => {
 };
 
 const Rack3D = ({ rackId, medicines, targetLoc, scale = 1 }) => {
-    const RACK_W = 280;
-    const RACK_H = 240;
+    const RACK_W = 320;
+    const RACK_H = 280;
     const RACK_D = 60;
-    const SHELF_H = 45;
+    const SHELF_H = 50;
+
     const BOX_W = 18;
-    const BOX_H = 22;
-    const BOX_D = 18;
+    const BOX_H = 24;
+    const BOX_D = 20;
 
     const rackMeds = useMemo(() => {
         return medicines.filter(m => {
@@ -33,37 +34,44 @@ const Rack3D = ({ rackId, medicines, targetLoc, scale = 1 }) => {
     }, [medicines, rackId]);
 
     return (
-        <div className="relative flex items-center justify-center" style={{ width: RACK_W, height: RACK_H, perspective: '1200px' }}>
+        <div className="relative flex items-center justify-center" style={{ width: RACK_W, height: RACK_H, perspective: '1400px' }}>
             <div
-                className="relative transition-transform duration-700 ease-out"
+                className="relative transition-transform duration-700 ease-out flex items-center justify-center"
                 style={{
                     width: RACK_W, height: RACK_H,
                     transformStyle: 'preserve-3d',
                     transform: `rotateX(15deg) rotateY(-25deg) scale(${scale})`
                 }}
             >
-                <div className="absolute -bottom-6 -left-4 -right-4 h-12 bg-slate-300/40 blur-xl" style={{ transform: 'rotateX(90deg)' }}></div>
+                <div className="absolute w-[360px] h-[80px] bg-black/10 blur-xl" style={{ bottom: '-40px', transform: 'rotateX(90deg) translateZ(-20px)' }}></div>
 
-                <div className="absolute inset-0 bg-white border border-slate-300" style={{ transform: `translateZ(-${RACK_D/2}px)`, backgroundImage: 'repeating-linear-gradient(transparent, transparent 18px, #f8fafc 18px, #f8fafc 20px)' }}>
-                    <div className="absolute top-2 left-3 bg-slate-100 text-slate-500 font-bold px-2 py-0.5 text-[9px] rounded border border-slate-200">RACK {rackId}</div>
+
+                <div className="absolute bg-slate-200 border border-slate-300 shadow-inner" style={{ width: RACK_W, height: RACK_H, transform: `translateZ(-${RACK_D/2}px)` }}>
+                    <div className="absolute top-3 left-4 bg-slate-400 text-white font-black px-2 py-0.5 text-[10px] rounded shadow-sm tracking-widest">RACK {rackId}</div>
+                    <div className="w-full h-full opacity-20" style={{ backgroundImage: 'repeating-linear-gradient(90deg, transparent, transparent 20px, #94a3b8 20px, #94a3b8 22px)' }}></div>
                 </div>
 
-                <div className="absolute bg-[#e2e8f0] border border-slate-300" style={{ width: RACK_D, height: RACK_H, left: 0, transformOrigin: 'left', transform: `rotateY(90deg)` }}></div>
+                <div className="absolute bg-slate-400 border border-slate-500" style={{ width: RACK_D, height: RACK_H, left: 0, transform: `translateX(-${RACK_D/2}px) rotateY(-90deg)` }}></div>
+                <div className="absolute bg-slate-100 border border-slate-300" style={{ width: '8px', height: RACK_H, left: 0, transform: `translateZ(${RACK_D/2}px)` }}></div>
 
-                <div className="absolute bg-[#e2e8f0] border border-slate-300" style={{ width: RACK_D, height: RACK_H, right: 0, transformOrigin: 'right', transform: `rotateY(-90deg)` }}></div>
+                <div className="absolute bg-slate-400 border border-slate-500" style={{ width: RACK_D, height: RACK_H, right: 0, transform: `translateX(${RACK_D/2}px) rotateY(90deg)` }}></div>
+                <div className="absolute bg-slate-100 border border-slate-300" style={{ width: '8px', height: RACK_H, right: 0, transform: `translateZ(${RACK_D/2}px)` }}></div>
 
                 {[1, 2, 3, 4, 5].map((shelfNum) => {
-                    const bottomPos = (shelfNum - 1) * SHELF_H;
+                    const bottomPos = (shelfNum - 1) * SHELF_H + 10; // offset from bottom
 
                     return (
                         <div key={shelfNum} className="absolute w-full" style={{ height: SHELF_H, bottom: bottomPos, transformStyle: 'preserve-3d' }}>
-                            <div className="absolute w-full bg-[#f1f5f9] border border-slate-300" style={{ height: RACK_D, bottom: 0, transformOrigin: 'bottom', transform: `rotateX(-90deg)` }}></div>
 
-                            <div className="absolute w-full bg-[#0ea5e9] shadow-sm border-b border-[#0284c7]" style={{ height: '6px', bottom: 0, transform: `translateZ(${RACK_D/2}px)` }}></div>
+                            <div className="absolute bg-slate-100 border-t border-slate-300" style={{ width: RACK_W, height: RACK_D, bottom: '-4px', transform: `rotateX(90deg) translateZ(${RACK_D/2 - 4}px)` }}></div>
 
-                            <div className="absolute bg-white border border-slate-200 text-slate-400 font-black text-[8px] px-1 rounded shadow-sm" style={{ left: '-20px', bottom: '4px', transform: `translateZ(${RACK_D/2 + 5}px) rotateY(15deg)` }}>S{shelfNum}</div>
+                            <div className="absolute bg-sky-500 shadow-sm border-b border-sky-600" style={{ width: RACK_W, height: '8px', bottom: 0, transform: `translateZ(${RACK_D/2}px)` }}></div>
 
-                            <div className="absolute w-full flex justify-evenly px-2 items-end pb-[2px]" style={{ height: BOX_H, bottom: 0, transformStyle: 'preserve-3d', transform: `translateZ(0px)` }}>
+                            <div className="absolute bg-slate-300 border-b border-slate-400" style={{ width: RACK_W, height: RACK_D, bottom: '4px', transform: `rotateX(-90deg) translateZ(${RACK_D/2 + 4}px)` }}></div>
+
+                            <div className="absolute bg-white border border-slate-300 text-slate-500 font-black text-[9px] px-1 rounded shadow-md" style={{ left: '-22px', bottom: '6px', transform: `translateZ(${RACK_D/2 + 10}px) rotateY(25deg)` }}>S{shelfNum}</div>
+
+                            <div className="absolute w-full flex justify-evenly px-4 items-end pb-[8px]" style={{ height: '35px', bottom: 0, transformStyle: 'preserve-3d', transform: `translateZ(0px)` }}>
                                 {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((binNum) => {
                                     const isTargetBin = targetLoc?.rack === rackId && targetLoc?.shelf === shelfNum && targetLoc?.bin === binNum;
                                     const isOccupied = isTargetBin || rackMeds.some(m => {
@@ -71,26 +79,35 @@ const Rack3D = ({ rackId, medicines, targetLoc, scale = 1 }) => {
                                         return loc && loc.shelf === shelfNum && loc.bin === binNum;
                                     });
 
-                                    const bgColor = isTargetBin ? 'bg-[#0ea5e9]' : 'bg-[#cfa4f5]';
-                                    const borderColor = isTargetBin ? 'border-[#0284c7]' : 'border-[#a855f7]';
+                                    const colorFront = isTargetBin ? 'bg-sky-400' : 'bg-purple-400';
+                                    const colorSide  = isTargetBin ? 'bg-sky-500' : 'bg-purple-500';
+                                    const colorTop   = isTargetBin ? 'bg-sky-300' : 'bg-purple-300';
+                                    const bColor     = isTargetBin ? 'border-sky-600' : 'border-purple-600';
 
                                     return (
                                         <div key={binNum} className="relative flex items-end justify-center" style={{ width: BOX_W, transformStyle: 'preserve-3d' }}>
                                             {isOccupied && (
                                                 <div
-                                                    className={`relative transition-all duration-700 ${isTargetBin ? 'z-50 scale-[1.3] -translate-y-2' : 'z-10'}`}
+                                                    className={`relative flex items-center justify-center transition-all duration-700 ${isTargetBin ? 'z-50 scale-125 -translate-y-3' : 'z-10'}`}
                                                     style={{ width: BOX_W, height: BOX_H, transformStyle: 'preserve-3d' }}
                                                 >
-                                                    <div className={`absolute inset-0 ${bgColor} ${borderColor} border shadow-sm`} style={{ transform: `translateZ(${BOX_D/2}px)` }}></div>
-                                                    <div className={`absolute inset-0 ${bgColor} ${borderColor} border`} style={{ transform: `translateZ(-${BOX_D/2}px)` }}></div>
-                                                    <div className={`absolute ${bgColor} ${borderColor} border`} style={{ width: BOX_D, height: BOX_H, right: 0, transformOrigin: 'right', transform: 'rotateY(-90deg)' }}></div>
-                                                    <div className={`absolute ${bgColor} ${borderColor} border`} style={{ width: BOX_D, height: BOX_H, left: 0, transformOrigin: 'left', transform: 'rotateY(90deg)' }}></div>
-                                                    <div className={`absolute ${bgColor} ${borderColor} border`} style={{ width: BOX_W, height: BOX_D, top: 0, transformOrigin: 'top', transform: 'rotateX(90deg)' }}></div>
+
+                                                    <div className={`absolute w-full h-full ${colorFront} ${bColor} border shadow-sm flex items-center justify-center`} style={{ transform: `translateZ(${BOX_D/2}px)` }}>
+                                                        {isTargetBin && <div className="w-1.5 h-1.5 bg-white/50 rounded-full"></div>}
+                                                    </div>
+
+                                                    <div className={`absolute w-full h-full ${colorFront} ${bColor} border`} style={{ transform: `translateZ(-${BOX_D/2}px)` }}></div>
+
+                                                    <div className={`absolute ${colorSide} ${bColor} border`} style={{ width: BOX_D, height: BOX_H, transform: `translateX(${BOX_W/2}px) rotateY(90deg)` }}></div>
+
+                                                    <div className={`absolute ${colorSide} ${bColor} border`} style={{ width: BOX_D, height: BOX_H, transform: `translateX(-${BOX_W/2}px) rotateY(-90deg)` }}></div>
+
+                                                    <div className={`absolute ${colorTop} ${bColor} border`} style={{ width: BOX_W, height: BOX_D, transform: `translateY(-${BOX_H/2}px) rotateX(90deg)` }}></div>
 
                                                     {isTargetBin && (
-                                                        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-[35px] flex flex-col items-center pointer-events-none animate-bounce" style={{ transform: 'rotateX(-15deg) rotateY(25deg)', transformStyle: 'preserve-3d' }}>
-                                                            <div className="bg-[#0ea5e9] text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-lg mb-0.5 uppercase tracking-wider border border-[#0284c7]">Target</div>
-                                                            <div className="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[6px] border-t-[#0ea5e9]"></div>
+                                                        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-[45px] flex flex-col items-center pointer-events-none animate-bounce" style={{ transform: 'rotateX(-15deg) rotateY(25deg)', transformStyle: 'preserve-3d' }}>
+                                                            <div className="bg-sky-500 text-white text-[9px] font-black px-2 py-0.5 rounded shadow-lg mb-0.5 uppercase tracking-widest border border-sky-600">Target</div>
+                                                            <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[7px] border-t-sky-500"></div>
                                                         </div>
                                                     )}
                                                 </div>
@@ -237,7 +254,7 @@ export default function RackLocatorPage() {
                                     </div>
 
                                     <button onClick={() => setSelectedMed(null)} className="w-full py-3.5 mt-4 bg-slate-200/50 hover:bg-slate-200 text-slate-600 text-[13px] font-bold rounded-2xl transition-colors">
-                                        Clear Selection & View All
+                                        Clear Selection & Reset View
                                     </button>
                                 </div>
                             ) : (
@@ -267,17 +284,18 @@ export default function RackLocatorPage() {
 
                                     {targetLoc ? (
                                         <div className="min-h-full flex flex-col items-center justify-center p-10 animate-in fade-in zoom-in duration-500">
-                                            <Rack3D rackId={targetLoc.rack} targetLoc={targetLoc} medicines={medicines} scale={1.4} />
+                                            <Rack3D rackId={targetLoc.rack} targetLoc={targetLoc} medicines={medicines} scale={1.3} />
 
                                             <button onClick={() => setSelectedMed(null)} className="mt-16 flex items-center gap-2 px-6 py-3 bg-white/80 border border-slate-200 shadow-sm rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">
                                                 <ArrowLeft size={16}/> Back to Floor View
                                             </button>
                                         </div>
                                     ) : (
+
                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-y-24 gap-x-12 p-16 pt-32 pb-32">
                                             {distinctRacks.map(rackId => (
                                                 <div key={rackId} className="flex flex-col items-center justify-center">
-                                                    <Rack3D rackId={rackId} targetLoc={null} medicines={medicines} scale={1} />
+                                                    <Rack3D rackId={rackId} targetLoc={null} medicines={medicines} scale={0.9} />
                                                 </div>
                                             ))}
                                         </div>
