@@ -4,6 +4,7 @@ import AdminLayout from '../../components/layout/AdminLayout';
 import { Receipt, Plus, Trash2, Calendar, FileText, Package, Search, X, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import { inventoryApi } from '../../api/inventoryApi';
 
 const COMMON_GENERICS = [
     // A
@@ -126,7 +127,9 @@ export default function PurchasesPage() {
         setLoading(true);
         try {
             const supRes = await axios.get('http://localhost:5000/api/suppliers').catch(err => { console.error("Supplier Error:", err); return { data: [] }; });
-            const medRes = await axios.get('http://localhost:5000/api/medicines').catch(err => { console.error("Medicine Error:", err); return { data: [] }; });
+
+            const medRes = await inventoryApi.getAll().catch(err => { console.error("Medicine Error:", err); return { data: [] }; });
+
             const purRes = await axios.get('http://localhost:5000/api/purchases').catch(err => { console.error("Purchase Error:", err); return { data: [] }; });
 
             setSuppliers(supRes.data || []);
