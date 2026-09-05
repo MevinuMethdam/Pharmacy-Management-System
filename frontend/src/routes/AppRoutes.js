@@ -14,6 +14,9 @@ import NMRALogsPage from '../pages/prescriptions/NMRALogsPage';
 
 import CRMPage from '../pages/crm/CRMPage';
 import AIOutbreakRadar from '../pages/admin/AIOutbreakRadar';
+
+import RackLocatorPage from '../pages/inventory/RackLocatorPage';
+
 const PharmacistDashboard = () => <div className="p-10 text-2xl font-bold text-center mt-10">Pharmacist Dashboard ⚕️</div>;
 
 const AppRoutes = () => {
@@ -35,6 +38,15 @@ const AppRoutes = () => {
                 element={
                     <ProtectedRoute allowedRoles={['Admin']}>
                         <InventoryPage />
+                    </ProtectedRoute>
+                }
+            />
+
+            <Route
+                path="/admin/rack-locator"
+                element={
+                    <ProtectedRoute allowedRoles={['Admin']}>
+                        <RackLocatorPage />
                     </ProtectedRoute>
                 }
             />

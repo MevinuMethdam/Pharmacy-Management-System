@@ -18,7 +18,8 @@ import {
     CheckCircle,
     User,
     Radar,
-    Receipt
+    Receipt,
+    Navigation
 } from 'lucide-react';
 import io from 'socket.io-client';
 
@@ -29,10 +30,11 @@ const socket = io('http://localhost:5000');
 const ADMIN_LINKS = [
     { to: '/admin', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/admin/suppliers', label: 'Suppliers', icon: Truck },
-    // --- NEW: අලුතින් එකතු කළ Purchases & GRN Link එක ---
     { to: '/admin/purchases', label: 'Purchases & GRN', icon: Receipt },
-    // -----------------------------------------------------
     { to: '/admin/inventory', label: 'Inventory', icon: Package },
+
+    { to: '/admin/rack-locator', label: 'Rack Locator', icon: Navigation },
+
     { to: '/admin/crm', label: 'CRM & Loyalty', icon: Star },
     { to: '/admin/prescriptions', label: 'Prescriptions', icon: FileText },
     { to: '/pos', label: 'POS Billing', icon: ShoppingCart },
