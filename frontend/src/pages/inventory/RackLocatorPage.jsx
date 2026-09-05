@@ -36,9 +36,9 @@ const RealisticRack = ({ rackId, medicines, targetLoc, imageIndex, isActive }) =
     const bgImage = RACK_IMAGES[imageIndex % RACK_IMAGES.length];
 
     return (
-        <div className="relative w-full h-full flex flex-col items-center justify-center">
+        <div className="relative w-full h-full flex flex-col items-center justify-center font-sans">
 
-            <div className={`absolute -top-14 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-md px-6 py-2.5 rounded-full shadow-lg border border-slate-200 font-black text-[15px] flex items-center gap-2 z-30 tracking-widest uppercase transition-all duration-700 ${isActive ? 'text-slate-800 scale-100' : 'text-slate-400 scale-90 opacity-0'}`}>
+            <div className={`absolute -top-14 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-md px-6 py-2.5 rounded-full shadow-lg border border-slate-200 font-bold text-[15px] flex items-center gap-2 z-30 tracking-widest uppercase transition-all duration-700 ${isActive ? 'text-slate-800 scale-100' : 'text-slate-400 scale-90 opacity-0'}`}>
                 <Layers className={`w-5 h-5 ${isActive ? 'text-sky-500' : 'text-slate-300'}`} /> RACK {String(rackId).padStart(2, '0')}
             </div>
 
@@ -97,8 +97,8 @@ const RealisticRack = ({ rackId, medicines, targetLoc, imageIndex, isActive }) =
                                             </div>
 
                                             {isTargetBin && isActive && (
-                                                <div className="absolute -top-12 left-1/2 -translate-x-1/2 flex flex-col items-center animate-bounce z-50 pointer-events-none">
-                                                    <div className="bg-sky-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded shadow-xl uppercase tracking-widest border border-sky-300 whitespace-nowrap">
+                                                <div className="absolute -top-12 left-1/2 -translate-x-1/2 flex flex-col items-center animate-bounce z-50 pointer-events-none font-sans">
+                                                    <div className="bg-sky-500 text-white text-[10px] font-bold px-2.5 py-0.5 rounded shadow-xl uppercase tracking-widest border border-sky-300 whitespace-nowrap">
                                                         Target
                                                     </div>
                                                     <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[7px] border-t-sky-500"></div>
@@ -236,11 +236,11 @@ export default function RackLocatorPage() {
                             </div>
 
                             {filteredSuggestions.length > 0 && (
-                                <div className="absolute top-[115%] left-0 w-full bg-white/95 backdrop-blur-3xl border border-slate-200 shadow-2xl rounded-2xl max-h-[300px] overflow-y-auto z-[100] py-2">
+                                <div className="absolute top-[115%] left-0 w-full bg-white/95 backdrop-blur-3xl border border-slate-200 shadow-2xl rounded-2xl max-h-[300px] overflow-y-auto z-[100] py-2 font-sans">
                                     {filteredSuggestions.map(m => (
                                         <div key={m.id} onClick={() => handleSearchSelect(m)} className="px-5 py-3 hover:bg-sky-50/80 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center transition-colors">
                                             <div>
-                                                <p className="text-sm font-bold text-slate-800">{m.name} <span className="text-xs text-slate-500 font-medium">({m.dosage})</span></p>
+                                                <p className="text-sm font-bold text-slate-800">{m.name} <span className="text-[11px] text-slate-500 font-medium">({m.dosage})</span></p>
                                             </div>
                                         </div>
                                     ))}
@@ -248,7 +248,7 @@ export default function RackLocatorPage() {
                             )}
                         </div>
 
-                        <div className="hidden lg:flex bg-white/80 backdrop-blur-md px-5 py-2.5 rounded-full shadow-sm border border-slate-200 font-bold text-sky-600 text-sm items-center gap-2">
+                        <div className="hidden lg:flex bg-white/80 backdrop-blur-md px-5 py-2.5 rounded-full shadow-sm border border-slate-200 font-bold text-sky-600 text-[13px] items-center gap-2">
                             <Layers size={18}/> Displaying: Rack {String(activeRackId).padStart(2, '0')}
                         </div>
                     </div>
@@ -256,29 +256,29 @@ export default function RackLocatorPage() {
                     <div className="flex-1 w-full bg-white/40 backdrop-blur-3xl rounded-[32px] border border-white/80 shadow-[inset_0_0_80px_rgba(203,213,225,0.4)] overflow-hidden relative flex flex-col min-h-[600px]">
 
                         {selectedMed && (
-                            <div className="absolute top-6 left-6 w-[350px] flex flex-col gap-4 z-[60] pointer-events-none">
+                            <div className="absolute top-6 left-6 w-[350px] flex flex-col gap-4 z-[60] pointer-events-none font-sans">
                                 <div className="bg-white/90 backdrop-blur-2xl p-6 rounded-[32px] border border-slate-200 shadow-2xl flex flex-col pointer-events-auto animate-in fade-in slide-in-from-left-8 duration-300">
                                     <div className="w-14 h-14 bg-sky-100 border border-sky-200 rounded-2xl flex items-center justify-center mb-4 shadow-sm">
                                         <Package className="w-7 h-7 text-sky-600" />
                                     </div>
-                                    <h2 className="text-2xl font-black text-slate-800 tracking-tight leading-tight">{selectedMed.name}</h2>
-                                    <p className="text-sm font-bold text-slate-500 mb-6">{selectedMed.dosage}</p>
+                                    <h2 className="text-[20px] font-bold text-slate-800 tracking-tight leading-tight">{selectedMed.name}</h2>
+                                    <p className="text-[13px] font-bold text-slate-500 mb-6">{selectedMed.dosage}</p>
 
                                     <div className="space-y-3">
                                         <div className="flex justify-between items-center p-4 bg-white/60 rounded-2xl border border-slate-100 shadow-sm">
                                             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5"><Layers size={14}/> Rack Code</span>
-                                            <span className="text-sm font-black text-slate-800">{targetLoc.category}-R{String(targetLoc.rack).padStart(2,'0')}</span>
+                                            <span className="text-[14px] font-bold text-slate-800">{targetLoc.category}-R{String(targetLoc.rack).padStart(2,'0')}</span>
                                         </div>
                                         <div className="flex justify-between items-center p-4 bg-[#0ea5e9] text-white rounded-2xl shadow-[0_8px_20px_-6px_rgba(14,165,233,0.5)] border border-[#38bdf8] relative overflow-hidden">
                                             <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -translate-y-10 translate-x-10 pointer-events-none"></div>
                                             <span className="text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 z-10"><MapPin size={14}/> Exact Position</span>
-                                            <span className="text-[15px] font-black z-10 text-right">
+                                            <span className="text-[15px] font-bold z-10 text-right">
                                                 Shelf {targetLoc.shelf} <br/> Bin {targetLoc.bin}
                                             </span>
                                         </div>
                                         <div className="flex justify-between items-center p-4 bg-white/60 rounded-2xl border border-slate-100 shadow-sm mt-2">
                                             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5"><Box size={14}/> Current Stock</span>
-                                            <span className="text-sm font-black text-slate-800">{selectedMed.quantity} Units</span>
+                                            <span className="text-[14px] font-bold text-slate-800">{selectedMed.quantity} Units</span>
                                         </div>
                                     </div>
 
@@ -290,9 +290,9 @@ export default function RackLocatorPage() {
                         )}
 
                         {loading ? (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-50">
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-50 font-sans">
                                 <div className="w-8 h-8 border-4 border-sky-100 border-t-sky-500 rounded-full animate-spin"></div>
-                                <span className="text-sky-500 font-bold">Building 3D Racks...</span>
+                                <span className="text-sky-500 font-bold text-[13px]">Building 3D Racks...</span>
                             </div>
                         ) : (
                             <div className={`w-full h-full flex flex-col items-center justify-center relative transition-all duration-500 pb-16 ${selectedMed ? 'pl-[350px]' : ''}`}>
@@ -351,7 +351,7 @@ export default function RackLocatorPage() {
                                     })}
                                 </div>
 
-                                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-white/95 backdrop-blur-xl px-8 py-3.5 rounded-[24px] shadow-[0_10px_30px_rgba(0,0,0,0.08)] border border-white relative z-[60]">
+                                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-8 bg-white/95 backdrop-blur-xl px-8 py-3.5 rounded-[24px] shadow-[0_10px_30px_rgba(0,0,0,0.08)] border border-white relative z-[60] font-sans">
                                     <button
                                         onClick={handlePrevRack}
                                         className="p-3 bg-white border border-slate-200 text-slate-500 rounded-xl hover:text-sky-600 hover:border-sky-200 hover:bg-sky-50 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
@@ -361,7 +361,7 @@ export default function RackLocatorPage() {
 
                                     <div className="flex flex-col items-center min-w-[140px]">
                                         <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Current View</span>
-                                        <span className="text-xl font-black text-slate-800">Rack {String(activeRackId).padStart(2, '0')}</span>
+                                        <span className="text-[17px] font-bold text-slate-800">Rack {String(activeRackId).padStart(2, '0')}</span>
                                     </div>
 
                                     <button
@@ -375,7 +375,7 @@ export default function RackLocatorPage() {
                             </div>
                         )}
 
-                        <div className="absolute bottom-6 right-8 bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-sm border border-slate-200 z-40 flex gap-6 pointer-events-none hidden lg:flex">
+                        <div className="absolute bottom-6 right-8 bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-sm border border-slate-200 z-40 flex gap-6 pointer-events-none hidden lg:flex font-sans">
                             <div className="flex items-center gap-2">
                                 <div className="w-4 h-4 rounded bg-cyan-400 border border-cyan-500 shadow-sm"></div>
                                 <span className="text-[11px] font-bold text-slate-600">Target Medicine</span>
