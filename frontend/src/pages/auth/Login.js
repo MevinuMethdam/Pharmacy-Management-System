@@ -1,9 +1,11 @@
 import React, { useState, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import { loginUser } from '../../services/authService';
-import { Mail, Lock, ArrowRight, ShieldCheck, UserCog, Pill, Activity, User } from 'lucide-react';
+import { Mail, Lock, ArrowRight, ShieldCheck, UserCog, Pill, Activity, User, DollarSign } from 'lucide-react';
 
 const Login = () => {
+    const navigate = useNavigate();
     const { login } = useContext(AuthContext);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -18,6 +20,10 @@ const Login = () => {
         try {
             const data = await loginUser(email, password);
             login(data.user, data.token);
+
+            if (data.user.role === 'Cashier') {
+                navigate('/pos');
+            }
         } catch (err) {
             setError(err.response?.data?.error || err.message || 'Login failed. Please try again.');
         } finally {
@@ -219,6 +225,19 @@ const Login = () => {
                                     <span className="text-[13px] font-bold text-slate-700">Pharmacist</span>
                                 </div>
                                 <span className="text-[11px] font-medium text-slate-400 font-mono">pharmacist / pharma123</span>
+                            </div>
+
+                            <div
+                                onClick={() => handleDemoFill('cashier', 'cashier123')}
+                                className="flex justify-between items-center p-3 rounded-xl border border-white/60 bg-white/40 hover:bg-white/80 cursor-pointer transition-colors shadow-sm group"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className="p-1.5 bg-amber-50 text-amber-600 rounded-lg group-hover:bg-amber-100 transition-colors">
+                                        <DollarSign size={16} />
+                                    </div>
+                                    <span className="text-[13px] font-bold text-slate-700">Cashier</span>
+                                </div>
+                                <span className="text-[11px] font-medium text-slate-400 font-mono">cashier / cashier123</span>
                             </div>
                         </div>
                     </div>
