@@ -1,21 +1,27 @@
 import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
-import { Mail, Lock, ArrowRight, Truck, ShieldCheck, HeartPulse } from 'lucide-react';
+import { Mail, Lock, ShieldCheck, HeartPulse, AlertCircle } from 'lucide-react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import supplyImage from '../../assets/ChatGPT-Image-Mar-16-2026-12_53_08-AM-1.jpg';
+
+import supplyImage from '../../assets/ChatGPT-Image-Mar-16-2026-12_53_08-AM-1.webp';
+import logoImage from '../../assets/logo.png';
 
 export default function SupplierLogin() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+
+    const [authError, setAuthError] = useState('');
+
     const { login } = useContext(AuthContext);
     const navigate = useNavigate();
 
     const handleLogin = async (e) => {
         e.preventDefault();
         setLoading(true);
+        setAuthError('');
 
         try {
             const res = await axios.post('http://localhost:5000/api/auth/supplier-login', {
@@ -28,7 +34,11 @@ export default function SupplierLogin() {
             toast.success('Welcome to Supplier Portal! 🎉');
 
         } catch (err) {
-            toast.error(err.response?.data?.message || 'Login failed. Check your credentials.');
+            console.error("Login Error:", err.response?.data);
+            const errorMsg = err.response?.data?.message || err.response?.data?.error || 'Login failed. Check your credentials.';
+
+            setAuthError(errorMsg);
+            toast.error('Login request failed.');
         } finally {
             setLoading(false);
         }
@@ -36,90 +46,105 @@ export default function SupplierLogin() {
 
     return (
         <div className="flex h-screen w-screen bg-slate-50 font-sans overflow-hidden">
-            <div className="hidden lg:flex lg:w-1/2 relative m-4 mr-0 rounded-[32px] overflow-hidden border border-slate-200 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)]">
+
+            <div className="hidden lg:flex lg:w-1/2 relative m-4 rounded-[32px] overflow-hidden shadow-lg border border-slate-200/60">
                 <img
                     src={supplyImage}
                     alt="Hospital & Pharmacy Supply"
-                    className="absolute inset-0 w-full h-full object-cover transform scale-105 filter brightness-95"
+                    className="absolute inset-0 w-full h-full object-cover transform scale-105"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-900/40 to-sky-900/30 backdrop-blur-[2px]"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/95 via-slate-800/60 to-slate-900/40"></div>
 
                 <div className="relative z-10 flex flex-col justify-between p-12 text-white w-full h-full">
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-lg">
-                            <Truck className="text-sky-300" size={24} />
+                    <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 flex items-center justify-center bg-white/10 backdrop-blur-sm rounded-2xl p-2 border border-white/20">
+                            <img src={logoImage} alt="Logo" className="w-full h-full object-contain" />
                         </div>
                         <div>
                             <div className="flex items-baseline gap-1.5">
-                                <span className="text-[20px] font-bold text-white tracking-tight">Kegalle</span>
-                                <span className="text-[20px] font-black bg-gradient-to-r from-sky-400 to-pink-400 bg-clip-text text-transparent tracking-tight">Ph4Life</span>
+                                <span className="text-xl font-bold text-white tracking-tight">Kegalle</span>
+                                <span className="text-xl font-black text-sky-400 tracking-tight">Ph4Life</span>
                             </div>
-                            <p className="text-[9px] font-bold text-sky-300 uppercase tracking-[0.2em]">Supply Chain Portal</p>
+                            <p className="text-[10px] font-semibold text-slate-300 uppercase tracking-widest mt-0.5">Supply Chain Portal</p>
                         </div>
                     </div>
 
-                    <div className="space-y-4 max-w-md mb-6">
-                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/15 text-sky-200 text-[11px] font-bold">
-                            <ShieldCheck size={14} /> Secure Vendor Management
+                    <div className="space-y-6 max-w-lg mb-10">
+                        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-sky-100 text-[11px] font-semibold uppercase tracking-wider">
+                            <ShieldCheck size={14} className="text-sky-300" /> Secure Vendor Management
                         </div>
-                        <h2 className="text-[32px] font-extrabold tracking-tight leading-tight">
-                            Streamline Your Pharmacy Deliveries & Orders.
+                        <h2 className="text-4xl font-bold tracking-tight leading-[1.2] text-white">
+                            Streamline Your Pharmacy Deliveries.
                         </h2>
-                        <p className="text-[13px] text-slate-300 font-medium leading-relaxed">
+                        <p className="text-[15px] text-slate-300 font-normal leading-relaxed">
                             Connect directly with Kegalle Ph4Life inventory systems, track purchase orders, manage GRNs, and maintain seamless healthcare distribution.
                         </p>
                     </div>
 
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium border-t border-white/10 pt-4">
+                    <div className="flex items-center justify-between text-xs text-slate-400 font-medium border-t border-white/10 pt-6">
                         <span>© 2026 Kegalle Ph4Life System</span>
-                        <div className="flex items-center gap-1 text-sky-300">
+                        <div className="flex items-center gap-1.5 text-sky-400/80">
                             <HeartPulse size={14} /> Verified Secure Portal
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div className="flex-1 flex flex-col items-center justify-center p-8 relative">
-                <div className="w-full max-w-[420px] bg-white p-10 rounded-[32px] border border-slate-200 shadow-[0_8px_32px_0_rgba(31,38,135,0.06)] relative z-10 flex flex-col items-center">
+            <div className="flex-1 flex flex-col items-center justify-center p-6 relative overflow-hidden bg-slate-50">
 
-                    <div className="w-16 h-16 rounded-2xl bg-sky-50 flex items-center justify-center mb-6 border border-sky-100/80 shadow-sm text-sky-600">
-                        <Truck size={28} strokeWidth={2.2} />
+                <div className="absolute top-0 right-0 w-96 h-96 bg-blue-100/40 rounded-full blur-3xl pointer-events-none"></div>
+                <div className="absolute bottom-0 left-0 w-96 h-96 bg-sky-100/40 rounded-full blur-3xl pointer-events-none"></div>
+
+                <div className="w-full max-w-[420px] bg-white p-10 rounded-[32px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 relative z-10 flex flex-col items-center">
+
+                    <div className="w-16 h-16 flex items-center justify-center mb-6">
+                        <img src={logoImage} alt="Logo" className="w-full h-full object-contain" />
                     </div>
 
-                    <div className="text-center mb-8">
-                        <h1 className="text-[24px] font-extrabold text-slate-800 tracking-tight mb-1.5">Supplier Portal</h1>
-                        <p className="text-[13px] text-slate-400 font-medium">Sign in to manage your pharmaceutical orders.</p>
+                    <div className="text-center mb-6 w-full">
+                        <h1 className="text-2xl font-bold text-slate-800 tracking-tight mb-2">Supplier Portal</h1>
+                        <p className="text-sm text-slate-500 font-normal">Sign in to manage your pharmaceutical orders.</p>
                     </div>
 
-                    <form onSubmit={handleLogin} className="space-y-4 w-full">
-                        <div>
-                            <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 ml-1">Email Address</label>
-                            <div className="relative">
-                                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                                    <Mail size={18} className="text-slate-400" />
+                    {authError && (
+                        <div className="w-full mb-6 p-4 bg-rose-50 border border-rose-200/80 rounded-2xl flex items-start gap-3 text-rose-600 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+                            <AlertCircle size={20} className="mt-0.5 flex-shrink-0 text-rose-500" />
+                            <div className="flex flex-col">
+                                <span className="text-[13px] font-bold text-rose-700 mb-0.5">Access Denied</span>
+                                <span className="text-[12px] font-medium leading-relaxed opacity-90">{authError}</span>
+                            </div>
+                        </div>
+                    )}
+
+                    <form onSubmit={handleLogin} className="space-y-5 w-full">
+                        <div className="space-y-1.5">
+                            <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide ml-1">Email Address</label>
+                            <div className="relative group">
+                                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                                    <Mail size={16} className="text-slate-400 group-focus-within:text-blue-500 transition-colors" />
                                 </div>
                                 <input
                                     type="email"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
-                                    className="w-full pl-11 pr-4 py-3.5 bg-slate-50/70 border border-slate-200 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all shadow-2xs"
+                                    className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-800 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all placeholder:text-slate-300 placeholder:font-normal"
                                     placeholder="supplier@company.com"
                                     required
                                 />
                             </div>
                         </div>
 
-                        <div>
-                            <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 ml-1">Password</label>
-                            <div className="relative">
-                                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                                    <Lock size={18} className="text-slate-400" />
+                        <div className="space-y-1.5">
+                            <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide ml-1">Password</label>
+                            <div className="relative group">
+                                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                                    <Lock size={16} className="text-slate-400 group-focus-within:text-blue-500 transition-colors" />
                                 </div>
                                 <input
                                     type="password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full pl-11 pr-4 py-3.5 bg-slate-50/70 border border-slate-200 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all shadow-2xs tracking-widest"
+                                    className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-800 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all placeholder:text-slate-300 placeholder:font-normal"
                                     placeholder="••••••••"
                                     required
                                 />
@@ -129,10 +154,9 @@ export default function SupplierLogin() {
                         <button
                             type="submit"
                             disabled={loading}
-                            className="w-full mt-2 flex items-center justify-center gap-2 bg-sky-600 text-white font-bold py-3.5 rounded-2xl shadow-[0_10px_25px_-5px_rgba(14,165,233,0.3)] hover:bg-sky-700 transition-all active:scale-[0.98] text-[14px] cursor-pointer disabled:opacity-70 border border-sky-500"
+                            className="w-full mt-2 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 text-sm cursor-pointer disabled:opacity-70 disabled:hover:translate-y-0 disabled:cursor-not-allowed"
                         >
-                            {loading ? 'Signing in...' : 'SIGN IN TO PORTAL'}
-                            {!loading && <ArrowRight size={18} strokeWidth={2.5} />}
+                            {loading ? 'Signing in...' : 'Sign In To Portal'}
                         </button>
                     </form>
                 </div>
