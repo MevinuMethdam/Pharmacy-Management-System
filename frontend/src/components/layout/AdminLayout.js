@@ -21,6 +21,8 @@ import {
     Receipt,
     Navigation
 } from 'lucide-react';
+import toast from 'react-hot-toast';
+import axios from 'axios';
 import io from 'socket.io-client';
 
 import profileImg from '../../assets/profile.png';
@@ -52,10 +54,8 @@ export default function AdminLayout({ children }) {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
 
-    // Sidebar Scroll Reference
     const navRef = useRef(null);
 
-    // Changed to useLayoutEffect to prevent visual flickering/shaking before browser paints
     useLayoutEffect(() => {
         const savedScrollPos = sessionStorage.getItem('sidebarScrollPos');
         if (savedScrollPos && navRef.current) {
@@ -64,25 +64,52 @@ export default function AdminLayout({ children }) {
     }, []);
 
     const handleNavScroll = (e) => {
-        // Save the scroll position as the user scrolls
         sessionStorage.setItem('sidebarScrollPos', e.target.scrollTop);
     };
 
+    const fetchNotifications = async () => {
+        try {
+            const res = await axios.get('http://localhost:5000/api/notifications/unread');
+            setNotifications(res.data);
+            setUnreadCount(res.data.length);
+        } catch (error) {
+            console.error("Failed to load notifications");
+        }
+    };
+
     useEffect(() => {
+        fetchNotifications();
+
+        const interval = setInterval(fetchNotifications, 300000);
+
         socket.on('receive_notification', (data) => {
             setNotifications((prev) => [data, ...prev]);
             setUnreadCount((prev) => prev + 1);
         });
 
         return () => {
+            clearInterval(interval);
             socket.off('receive_notification');
         };
     }, []);
 
-    const markAsRead = () => {
-        setUnreadCount(0);
+    const handleNotificationClick = async (id) => {
+        try {
+            await axios.put(`http://localhost:5000/api/notifications/${id}/read`);
+
+            setNotifications(prev => prev.filter(n => n.id !== id));
+            setUnreadCount(prev => Math.max(0, prev - 1));
+
+        } catch (error) {
+            console.error("Failed to mark as read");
+            toast.error("Failed to clear notification");
+        }
+    };
+
+    const toggleDropdown = () => {
         setIsDropdownOpen(!isDropdownOpen);
     };
+
     const getInitials = () => {
         if (!user) return 'AD';
         const first = user.firstName ? user.firstName[0] : '';
@@ -185,7 +212,7 @@ export default function AdminLayout({ children }) {
 
                         <div className="relative">
                             <button
-                                onClick={markAsRead}
+                                onClick={toggleDropdown}
                                 className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center hover:bg-slate-50 transition-all relative cursor-pointer text-slate-500 hover:text-sky-600"
                             >
                                 <Bell size={18} strokeWidth={2.5} />
@@ -201,17 +228,30 @@ export default function AdminLayout({ children }) {
                                 <div className="absolute right-0 mt-3 w-80 bg-white rounded-2xl shadow-[0_12px_40px_-10px_rgba(15,23,42,0.15)] border border-slate-200 overflow-hidden z-50">
                                     <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex justify-between items-center">
                                         <h3 className="text-sm font-bold text-slate-800">Notifications</h3>
-                                        <span className="text-[10px] font-bold bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full shadow-sm">{notifications.length} New</span>
+                                        {unreadCount > 0 && (
+                                            <span className="text-[10px] font-bold bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full shadow-sm">{unreadCount} New</span>
+                                        )}
                                     </div>
-                                    <div className="max-h-[300px] overflow-y-auto">
+                                    <div className="max-h-[300px] overflow-y-auto hide-scrollbar">
                                         {notifications.length === 0 ? (
                                             <div className="p-6 text-center text-sm text-slate-400 font-medium">No new notifications</div>
                                         ) : (
                                             notifications.map((note) => (
-                                                <div key={note.id} className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                                                <div key={note.id} className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors group">
                                                     <p className="text-xs font-bold text-slate-700 mb-0.5">{note.title}</p>
                                                     <p className="text-[11px] text-slate-500 leading-relaxed">{note.message}</p>
-                                                    <p className="text-[9px] text-sky-500 mt-2 font-semibold">{new Date(note.time).toLocaleTimeString()}</p>
+
+                                                    <div className="flex items-center justify-between mt-3">
+                                                        <p className="text-[9px] text-sky-500 font-semibold">
+                                                            {new Date(note.createdAt || note.time || new Date()).toLocaleString()}
+                                                        </p>
+                                                        <button
+                                                            onClick={() => handleNotificationClick(note.id)}
+                                                            className="flex items-center gap-1.5 text-[10px] font-bold text-sky-600 hover:text-white bg-sky-50 hover:bg-sky-500 px-2.5 py-1.5 rounded-md transition-colors cursor-pointer"
+                                                        >
+                                                            <CheckCircle size={12} strokeWidth={2.5} /> Clear
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             ))
                                         )}
@@ -316,7 +356,7 @@ export default function AdminLayout({ children }) {
                                         <div className="p-1.5 bg-rose-50 text-rose-500 rounded-full mt-0.5 group-hover:scale-110 transition-transform"><ShieldAlert size={12} /></div>
                                         <div>
                                             <p className="text-[12px] font-bold text-slate-700 group-hover:text-sky-600 transition-colors">{note.title}</p>
-                                            <p className="text-[10px] text-slate-400 mt-0.5">{new Date(note.time).toLocaleDateString()}, {new Date(note.time).toLocaleTimeString()}</p>
+                                            <p className="text-[10px] text-slate-400 mt-0.5">{new Date(note.createdAt || note.time || new Date()).toLocaleString()}</p>
                                         </div>
                                     </div>
                                 ))
