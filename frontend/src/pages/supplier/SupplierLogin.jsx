@@ -57,9 +57,6 @@ export default function SupplierLogin() {
 
                 <div className="relative z-10 flex flex-col justify-between p-12 text-white w-full h-full">
                     <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 flex items-center justify-center bg-white/10 backdrop-blur-sm rounded-2xl p-2 border border-white/20">
-                            <img src={logoImage} alt="Logo" className="w-full h-full object-contain" />
-                        </div>
                         <div>
                             <div className="flex items-baseline gap-1.5">
                                 <span className="text-xl font-bold text-white tracking-tight">Kegalle</span>
