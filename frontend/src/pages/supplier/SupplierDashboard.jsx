@@ -5,7 +5,7 @@ import {
     Truck, LogOut, Package, DollarSign, Clock, CheckCircle,
     Building2, Mail, LayoutDashboard, Receipt, CreditCard,
     Box, UserCircle, ChevronRight, ChevronLeft, Calendar, AlertCircle,
-    Search, MapPin, Phone, Banknote, Eye, X, FileText, Bell, User
+    Search, MapPin, Phone, Banknote, Eye, X, FileText, Bell, User, AlertTriangle
 } from 'lucide-react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -35,6 +35,9 @@ export default function SupplierDashboard() {
 
     const [viewingReceipt, setViewingReceipt] = useState(null);
     const [accepting, setAccepting] = useState(false);
+    const [rejecting, setRejecting] = useState(false);
+    const [rejectionReason, setRejectionReason] = useState('');
+    const [showRejectInput, setShowRejectInput] = useState(false);
 
     const navRef = useRef(null);
 
@@ -118,6 +121,32 @@ export default function SupplierDashboard() {
         }
     };
 
+    const handleRejectPayment = async (paymentId) => {
+        if (!rejectionReason.trim()) {
+            toast.error("Please enter a reason for rejecting the payment.");
+            return;
+        }
+        if (!window.confirm("Are you sure you want to reject this payment receipt?")) return;
+
+        setRejecting(true);
+        try {
+            const token = localStorage.getItem('token');
+            const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+
+            await axios.put(`http://localhost:5000/api/supplier-payments/${paymentId}/reject`, { reason: rejectionReason }, config);
+
+            toast.error("Payment Rejected. Admin has been notified.");
+            setViewingReceipt(null);
+            setShowRejectInput(false);
+            setRejectionReason('');
+            fetchPortalData();
+        } catch (err) {
+            toast.error(err.response?.data?.error || "Failed to reject payment.");
+        } finally {
+            setRejecting(false);
+        }
+    };
+
     const markAsRead = () => {
         setUnreadCount(0);
         setIsDropdownOpen(!isDropdownOpen);
@@ -125,6 +154,8 @@ export default function SupplierDashboard() {
 
     const totalOutstanding = supplierInfo?.totalOutstanding || 0;
     const creditPeriodDays = supplierInfo?.creditPeriod || 30;
+
+    const isAccountInactive = supplierInfo?.status === 'Inactive';
 
     const upcomingDues = purchases.filter(p => {
         const dueDate = new Date(p.dueDate);
@@ -166,7 +197,7 @@ export default function SupplierDashboard() {
             >
                 <button
                     onClick={() => setIsCollapsed(!isCollapsed)}
-                    className="absolute -right-3.5 top-10 bg-white border border-slate-200 rounded-full p-1.5 shadow-sm hover:bg-slate-50 transition-all z-50 hover:scale-110 cursor-pointer flex items-center justify-center text-slate-400 hover:text-sky-600"
+                    className="absolute -right-3.5 top-10 bg-white border border-slate-200 rounded-full p-1.5 shadow-sm hover:bg-slate-50 transition-all z-50 hover:scale-110 cursor-pointer flex items-center justify-center text-slate-400 hover:text-orange-600"
                 >
                     {isCollapsed ? <ChevronRight size={18} strokeWidth={2.5} /> : <ChevronLeft size={18} strokeWidth={2.5} />}
                 </button>
@@ -176,13 +207,13 @@ export default function SupplierDashboard() {
                         <div className="overflow-hidden whitespace-nowrap transition-opacity duration-300 w-full">
                             <div className="flex items-baseline gap-1.5 pb-0.5">
                                 <span className="text-[22px] font-bold text-slate-700 tracking-tight">Supplier</span>
-                                <span className="text-[22px] font-black bg-gradient-to-r from-sky-600 to-blue-500 bg-clip-text text-transparent tracking-tight pr-1 pb-1">Portal</span>
+                                <span className="text-[22px] font-black bg-gradient-to-r from-orange-600 to-red-500 bg-clip-text text-transparent tracking-tight pr-1 pb-1">Portal</span>
                             </div>
-                            <p className="text-[10px] font-bold text-sky-500 uppercase tracking-[0.15em] ml-0.5">Ph4Life Network</p>
+                            <p className="text-[10px] font-bold text-orange-500 uppercase tracking-[0.15em] ml-0.5">Ph4Life Network</p>
                         </div>
                     )}
                     {isCollapsed && (
-                        <span className="font-black text-[22px] bg-gradient-to-r from-sky-600 to-blue-500 bg-clip-text text-transparent pb-1 pr-1">
+                        <span className="font-black text-[22px] bg-gradient-to-r from-orange-600 to-red-500 bg-clip-text text-transparent pb-1 pr-1">
                             SP
                         </span>
                     )}
@@ -202,11 +233,11 @@ export default function SupplierDashboard() {
                                 title={isCollapsed ? label : ""}
                                 className={`flex items-center w-full ${isCollapsed ? 'justify-center' : 'gap-3.5 px-5'} py-3.5 rounded-2xl text-[14px] font-bold transition-all duration-200 group cursor-pointer ${
                                     isActive
-                                        ? 'bg-sky-50 text-sky-700 shadow-sm border border-sky-100/50'
+                                        ? 'bg-orange-50 text-orange-700 shadow-sm border border-orange-100/50'
                                         : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 border border-transparent'
                                 }`}
                             >
-                                <Icon className={`w-5 h-5 flex-shrink-0 transition-transform duration-200 ${!isCollapsed && 'group-hover:scale-110'} ${isActive ? 'text-sky-600' : 'text-slate-400'}`} />
+                                <Icon className={`w-5 h-5 flex-shrink-0 transition-transform duration-200 ${!isCollapsed && 'group-hover:scale-110'} ${isActive ? 'text-orange-600' : 'text-slate-400'}`} />
                                 {!isCollapsed && (
                                     <span className="whitespace-nowrap">{label}</span>
                                 )}
@@ -240,7 +271,7 @@ export default function SupplierDashboard() {
                         <div className="relative">
                             <button
                                 onClick={markAsRead}
-                                className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center hover:bg-slate-50 transition-all relative cursor-pointer text-slate-500 hover:text-sky-600"
+                                className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center hover:bg-slate-50 transition-all relative cursor-pointer text-slate-500 hover:text-orange-600"
                             >
                                 <Bell size={18} strokeWidth={2.5} />
                                 {unreadCount > 0 && (
@@ -255,7 +286,7 @@ export default function SupplierDashboard() {
                                 <div className="absolute right-0 mt-3 w-80 bg-white rounded-2xl shadow-[0_12px_40px_-10px_rgba(15,23,42,0.15)] border border-slate-200 overflow-hidden z-50">
                                     <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex justify-between items-center">
                                         <h3 className="text-sm font-bold text-slate-800">Notifications</h3>
-                                        <span className="text-[10px] font-bold bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full shadow-sm">{notifications.length} New</span>
+                                        <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full shadow-sm">{notifications.length} New</span>
                                     </div>
                                     <div className="max-h-[300px] overflow-y-auto">
                                         {notifications.length === 0 ? (
@@ -265,7 +296,7 @@ export default function SupplierDashboard() {
                                                 <div key={note.id} className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors">
                                                     <p className="text-xs font-bold text-slate-700 mb-0.5">{note.title}</p>
                                                     <p className="text-[11px] text-slate-500 leading-relaxed">{note.message}</p>
-                                                    <p className="text-[9px] text-sky-500 mt-2 font-semibold">{new Date(note.time).toLocaleTimeString()}</p>
+                                                    <p className="text-[9px] text-orange-500 mt-2 font-semibold">{new Date(note.time).toLocaleTimeString()}</p>
                                                 </div>
                                             ))
                                         )}
@@ -276,21 +307,31 @@ export default function SupplierDashboard() {
 
                         <button
                             onClick={() => setIsProfileOpen(true)}
-                            className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center cursor-pointer hover:bg-slate-50 hover:text-sky-600 text-slate-500 transition-all focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+                            className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center cursor-pointer hover:bg-slate-50 hover:text-orange-600 text-slate-500 transition-all focus:outline-none focus:ring-2 focus:ring-orange-500/50"
                         >
                             <User size={18} strokeWidth={2.5} />
                         </button>
                     </div>
                 </div>
 
-                <main className="flex-1 overflow-x-hidden overflow-y-auto px-8 pb-8 pt-2">
+                <main className="flex-1 overflow-x-hidden overflow-y-auto px-8 pb-8 pt-2 relative">
+
+                    {isAccountInactive && (
+                        <div className="mb-6 bg-rose-500 text-white p-4 rounded-2xl flex items-center gap-4 shadow-lg shadow-rose-500/20 animation-fade-in">
+                            <AlertTriangle size={28} className="text-white flex-shrink-0" />
+                            <div>
+                                <h3 className="font-extrabold text-[16px]">Account Suspended / Inactive</h3>
+                                <p className="text-[13px] font-medium opacity-90 mt-0.5">Your portal access is currently restricted. You cannot accept or reject payments at this time. Please contact Kegalle Ph4Life administration.</p>
+                            </div>
+                        </div>
+                    )}
 
                     {activeTab === 'dashboard' && (
                         <div className="space-y-6 max-w-6xl mx-auto animation-fade-in pb-10">
 
-                            <div className="bg-gradient-to-r from-sky-500/10 via-indigo-500/10 to-purple-500/10 p-6 rounded-[32px] border border-white shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
+                            <div className="bg-gradient-to-r from-orange-500/10 via-red-500/10 to-yellow-500/10 p-6 rounded-[32px] border border-white shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
                                 <div className="space-y-2 text-center md:text-left">
-                                    <span className="px-3 py-1 bg-sky-500 text-white rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm">Distributor Dashboard</span>
+                                    <span className="px-3 py-1 bg-orange-500 text-white rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm">Distributor Dashboard</span>
                                     <h2 className="text-[26px] font-black text-slate-800">Welcome, {supplierInfo?.companyName || user?.name}!</h2>
                                     <p className="text-[13px] font-medium text-slate-600 max-w-lg">Manage your pharmaceutical supplies, track GRNs, and review payment receipts securely in one place.</p>
                                 </div>
@@ -306,7 +347,7 @@ export default function SupplierDashboard() {
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <div className="bg-gradient-to-br from-rose-500 to-orange-500 p-6 rounded-[32px] text-white shadow-lg shadow-rose-500/20 flex flex-col justify-between">
+                                <div className={`bg-gradient-to-br p-6 rounded-[32px] text-white shadow-lg flex flex-col justify-between ${Number(totalOutstanding) > 0 ? 'from-rose-500 to-red-600 shadow-rose-500/20' : 'from-emerald-500 to-teal-600 shadow-emerald-500/20'}`}>
                                     <div className="flex justify-between items-start mb-4">
                                         <div className="p-3 bg-white/20 backdrop-blur-md rounded-2xl"><DollarSign size={24} className="text-white" /></div>
                                         <span className="px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-[10px] font-bold uppercase tracking-wider">Total Outstanding</span>
@@ -340,9 +381,9 @@ export default function SupplierDashboard() {
                             <div className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm mt-8 block w-full">
                                 <div className="flex justify-between items-center mb-6">
                                     <h3 className="text-[17px] font-bold text-slate-800 flex items-center gap-2">
-                                        <Clock className="text-sky-500" size={20} /> Recent Deliveries (GRNs)
+                                        <Clock className="text-orange-500" size={20} /> Recent Deliveries (GRNs)
                                     </h3>
-                                    <button onClick={() => setActiveTab('orders')} className="text-[12px] font-bold text-sky-600 hover:text-sky-700 cursor-pointer">
+                                    <button onClick={() => setActiveTab('orders')} className="text-[12px] font-bold text-orange-600 hover:text-orange-700 cursor-pointer">
                                         View All Orders &rarr;
                                     </button>
                                 </div>
@@ -361,7 +402,7 @@ export default function SupplierDashboard() {
                                             purchases.slice(0, 5).length === 0 ? <tr><td colSpan="3" className="text-center py-8 text-slate-400">No recent orders.</td></tr> :
                                                 purchases.slice(0, 5).map(p => (
                                                     <tr key={p.id} className="border-b border-slate-50 hover:bg-slate-50">
-                                                        <td className="py-4 font-mono font-bold text-sky-700">{p.invoiceNumber}</td>
+                                                        <td className="py-4 font-mono font-bold text-orange-700">{p.invoiceNumber}</td>
                                                         <td className="py-4 text-[13px] text-slate-600">{new Date(p.invoiceDate).toLocaleDateString()}</td>
                                                         <td className="py-4 text-[14px] font-black text-slate-800 text-right">{Number(p.totalAmount || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
                                                     </tr>
@@ -377,7 +418,7 @@ export default function SupplierDashboard() {
                         <div className="max-w-6xl mx-auto animation-fade-in pb-10">
                             <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
                                 <div>
-                                    <h2 className="text-[24px] font-black text-slate-800 flex items-center gap-2"><CreditCard className="text-sky-500"/> Payments</h2>
+                                    <h2 className="text-[24px] font-black text-slate-800 flex items-center gap-2"><CreditCard className="text-orange-500"/> Payments</h2>
                                     <p className="text-[13px] font-medium text-slate-500 mt-1">Review pending payment receipts and accept them to update your balance.</p>
                                 </div>
                             </div>
@@ -398,11 +439,11 @@ export default function SupplierDashboard() {
                                         {loading ? <tr><td colSpan="5" className="text-center py-10 text-slate-400">Loading...</td></tr> :
                                             payments.length === 0 ? <tr><td colSpan="5" className="text-center py-10 text-slate-400">No Payment Records Found.</td></tr> :
                                                 payments.map(pay => (
-                                                    <tr key={pay.id} className={`border-b border-slate-100 hover:bg-slate-50 ${pay.status === 'Pending' ? 'bg-amber-50/30' : ''}`}>
+                                                    <tr key={pay.id} className={`border-b border-slate-100 hover:bg-slate-50 ${pay.status === 'Pending' ? 'bg-amber-50/30' : ''} ${pay.status === 'Rejected' ? 'bg-rose-50/30' : ''}`}>
                                                         <td className="p-4 text-[13px] text-slate-600 font-medium">{new Date(pay.paymentDate).toLocaleDateString()}</td>
                                                         <td className="p-4 text-[12px] text-slate-500 max-w-[200px] truncate">{pay.notes || '-'}</td>
                                                         <td className="p-4">
-                                                            <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold border ${pay.status === 'Pending' ? 'bg-amber-100 text-amber-700 border-amber-200 animate-pulse' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`}>
+                                                            <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold border ${pay.status === 'Pending' ? 'bg-amber-100 text-amber-700 border-amber-200 animate-pulse' : pay.status === 'Rejected' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`}>
                                                                 {pay.status || 'Accepted'}
                                                             </span>
                                                         </td>
@@ -411,14 +452,18 @@ export default function SupplierDashboard() {
                                                         </td>
                                                         <td className="p-4 text-center">
                                                             <button
-                                                                onClick={() => setViewingReceipt(pay)}
+                                                                onClick={() => {
+                                                                    setViewingReceipt(pay);
+                                                                    setShowRejectInput(false);
+                                                                    setRejectionReason('');
+                                                                }}
                                                                 className={`inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold transition-all cursor-pointer shadow-sm ${
                                                                     pay.status === 'Pending'
-                                                                        ? 'bg-sky-500 text-white hover:bg-sky-600 hover:shadow-md'
+                                                                        ? 'bg-orange-500 text-white hover:bg-orange-600 hover:shadow-md'
                                                                         : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                                                                 }`}
                                                             >
-                                                                <Eye size={14}/> {pay.status === 'Pending' ? 'Review & Accept' : 'View Receipt'}
+                                                                <Eye size={14}/> {pay.status === 'Pending' ? 'Review' : 'View'}
                                                             </button>
                                                         </td>
                                                     </tr>
@@ -433,11 +478,11 @@ export default function SupplierDashboard() {
                     {activeTab === 'orders' && (
                         <div className="max-w-6xl mx-auto animation-fade-in flex flex-col h-full pb-10">
                             <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
-                                <h2 className="text-[24px] font-black text-slate-800 flex items-center gap-2"><Receipt className="text-sky-500"/> Orders & GRNs</h2>
+                                <h2 className="text-[24px] font-black text-slate-800 flex items-center gap-2"><Receipt className="text-orange-500"/> Orders & GRNs</h2>
                                 <div className="relative w-full md:w-72">
                                     <Search size={16} className="absolute left-3 top-3 text-slate-400" />
                                     <input type="text" placeholder="Search Invoice or GRN..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                                           className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[13px] font-bold outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400" />
+                                           className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[13px] font-bold outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400" />
                                 </div>
                             </div>
 
@@ -459,7 +504,7 @@ export default function SupplierDashboard() {
                                                 filteredPurchases.map(p => (
                                                     <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50">
                                                         <td className="p-4">
-                                                            <p className="font-bold text-[14px] text-sky-700">{p.invoiceNumber}</p>
+                                                            <p className="font-bold text-[14px] text-orange-700">{p.invoiceNumber}</p>
                                                             <p className="text-[11px] text-slate-500 font-mono mt-0.5">{p.grnNumber}</p>
                                                         </td>
                                                         <td className="p-4 text-[13px] text-slate-600 font-medium">{new Date(p.invoiceDate).toLocaleDateString()}</td>
@@ -477,7 +522,7 @@ export default function SupplierDashboard() {
 
                     {activeTab === 'products' && (
                         <div className="max-w-6xl mx-auto animation-fade-in pb-10">
-                            <h2 className="text-[24px] font-black text-slate-800 mb-6 flex items-center gap-2"><Box className="text-sky-500"/> My Products</h2>
+                            <h2 className="text-[24px] font-black text-slate-800 mb-6 flex items-center gap-2"><Box className="text-orange-500"/> My Products</h2>
                             <div className="bg-white rounded-[24px] border border-slate-200 shadow-sm overflow-hidden">
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-left border-collapse min-w-[600px]">
@@ -512,12 +557,12 @@ export default function SupplierDashboard() {
                     {activeTab === 'profile' && (
                         <div className="max-w-4xl mx-auto animation-fade-in pb-10">
                             <div className="flex justify-between items-center mb-6">
-                                <h2 className="text-[24px] font-black text-slate-800 flex items-center gap-2"><Building2 className="text-sky-500"/> Company Profile</h2>
+                                <h2 className="text-[24px] font-black text-slate-800 flex items-center gap-2"><Building2 className="text-orange-500"/> Company Profile</h2>
                             </div>
 
                             <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm p-8 space-y-8">
                                 <div>
-                                    <h3 className="text-[12px] font-extrabold text-sky-600 uppercase tracking-widest border-b border-slate-100 pb-2 mb-4">General Information</h3>
+                                    <h3 className="text-[12px] font-extrabold text-orange-600 uppercase tracking-widest border-b border-slate-100 pb-2 mb-4">General Information</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div><label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">Company Name</label><p className="text-[15px] font-bold text-slate-800">{supplierInfo?.companyName || '-'}</p></div>
                                         <div><label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">Medical Rep Name</label><p className="text-[15px] font-bold text-slate-800 flex items-center gap-2"><UserCircle size={16} className="text-slate-400"/> {supplierInfo?.repName || '-'}</p></div>
@@ -529,7 +574,7 @@ export default function SupplierDashboard() {
                                 </div>
 
                                 <div>
-                                    <h3 className="text-[12px] font-extrabold text-sky-600 uppercase tracking-widest border-b border-slate-100 pb-2 mb-4">Bank & Financial Details</h3>
+                                    <h3 className="text-[12px] font-extrabold text-orange-600 uppercase tracking-widest border-b border-slate-100 pb-2 mb-4">Bank & Financial Details</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 p-6 rounded-2xl border border-slate-100">
                                         <div><label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">Bank Name</label><p className="text-[15px] font-bold text-slate-800 flex items-center gap-2"><Banknote size={16} className="text-emerald-500"/> {supplierInfo?.bankName || '-'}</p></div>
                                         <div><label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">Account Number</label><p className="text-[15px] font-mono font-bold text-slate-800">{supplierInfo?.accountNumber || '-'}</p></div>
@@ -559,19 +604,19 @@ export default function SupplierDashboard() {
                         <button onClick={() => setIsProfileOpen(false)} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors cursor-pointer">
                             <X size={20} />
                         </button>
-                        <button onClick={logout} className="flex items-center gap-2 text-slate-500 hover:text-sky-600 font-bold text-[13px] transition-colors cursor-pointer">
+                        <button onClick={logout} className="flex items-center gap-2 text-slate-500 hover:text-orange-600 font-bold text-[13px] transition-colors cursor-pointer">
                             Logout <LogOut size={16} />
                         </button>
                     </div>
 
                     <div className="flex flex-col items-center mb-8">
-                        <div className="relative w-[100px] h-[100px] rounded-full border-4 border-white shadow-[0_8px_24px_rgba(14,165,233,0.15)] mb-4">
+                        <div className="relative w-[100px] h-[100px] rounded-full border-4 border-white shadow-[0_8px_24px_rgba(249,115,22,0.15)] mb-4">
                             <img src={profileImg} alt="Profile" className="w-full h-full object-cover rounded-full bg-slate-50" />
                         </div>
                         <h2 className="text-[18px] font-extrabold text-slate-800 tracking-tight">
                             {supplierInfo?.companyName || user?.name || 'Distributor Partner'}
                         </h2>
-                        <p className="text-[13px] font-medium text-sky-500 mt-0.5">
+                        <p className="text-[13px] font-medium text-orange-500 mt-0.5">
                             Verified Supplier Account
                         </p>
                     </div>
@@ -579,15 +624,15 @@ export default function SupplierDashboard() {
                     <div className="px-2">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="text-[14px] font-extrabold text-slate-800 tracking-tight">Notifications</h3>
-                            <Bell size={14} className="text-sky-500" />
+                            <Bell size={14} className="text-orange-500" />
                         </div>
                         <div className="space-y-4">
                             {notifications.length > 0 ? (
                                 notifications.slice(0, 3).map((note, idx) => (
                                     <div key={idx} className="flex gap-3 items-start p-1 cursor-pointer group">
-                                        <div className="p-1.5 bg-sky-50 text-sky-500 rounded-full mt-0.5 group-hover:scale-110 transition-transform"><Bell size={12} /></div>
+                                        <div className="p-1.5 bg-orange-50 text-orange-500 rounded-full mt-0.5 group-hover:scale-110 transition-transform"><Bell size={12} /></div>
                                         <div>
-                                            <p className="text-[12px] font-bold text-slate-700 group-hover:text-sky-600 transition-colors">{note.title}</p>
+                                            <p className="text-[12px] font-bold text-slate-700 group-hover:text-orange-600 transition-colors">{note.title}</p>
                                             <p className="text-[10px] text-slate-400 mt-0.5">{new Date(note.time).toLocaleDateString()}, {new Date(note.time).toLocaleTimeString()}</p>
                                         </div>
                                     </div>
@@ -606,20 +651,20 @@ export default function SupplierDashboard() {
                         <div className="flex justify-between items-center mb-4 flex-shrink-0">
                             <div>
                                 <h2 className="text-[20px] font-bold text-slate-800 flex items-center gap-2.5">
-                                    <FileText className="text-sky-500 w-6 h-6"/> Payment Receipt
+                                    <FileText className="text-orange-500 w-6 h-6"/> Payment Receipt
                                 </h2>
                                 <p className="text-[12px] font-medium text-slate-500 mt-0.5">Payment Amount: <span className="font-bold text-emerald-600">LKR {Number(viewingReceipt.amount).toLocaleString(undefined, {minimumFractionDigits: 2})}</span></p>
                             </div>
                             <button onClick={() => setViewingReceipt(null)} className="hover:bg-slate-100 p-2 rounded-full transition-colors cursor-pointer text-slate-400">
-                                <X size5={20} />
+                                <X size={20} />
                             </button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto bg-slate-100 rounded-2xl border border-slate-200 flex justify-center items-center p-2 mb-4">
+                        <div className={`flex-1 overflow-y-auto bg-slate-100 rounded-2xl border border-slate-200 flex justify-center items-center p-2 ${!showRejectInput ? 'mb-4' : 'mb-2 h-[200px]'}`}>
                             {viewingReceipt.receiptImage ? (
                                 <iframe
                                     src={viewingReceipt.receiptImage}
-                                    className="w-full h-[400px] rounded-xl bg-white"
+                                    className="w-full h-full min-h-[300px] rounded-xl bg-white"
                                     title="Receipt Document"
                                 />
                             ) : (
@@ -627,21 +672,69 @@ export default function SupplierDashboard() {
                             )}
                         </div>
 
-                        {viewingReceipt.status === 'Pending' ? (
-                            <div className="flex-shrink-0 flex flex-col gap-2">
+                        {showRejectInput && viewingReceipt.status === 'Pending' && (
+                            <div className="mb-4 bg-rose-50/50 p-4 rounded-2xl border border-rose-100">
+                                <label className="block text-[11px] font-bold text-rose-600 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                                    <AlertTriangle size={14}/> Reason for Rejection *
+                                </label>
+                                <textarea
+                                    className="w-full px-3 py-2.5 bg-white border border-rose-200 rounded-xl text-[13px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-rose-400/40 resize-none h-20"
+                                    placeholder="Please state why this receipt is rejected (e.g. Blurry image, wrong amount...)"
+                                    value={rejectionReason}
+                                    onChange={(e) => setRejectionReason(e.target.value)}
+                                ></textarea>
+                                <div className="flex gap-2 mt-3">
+                                    <button
+                                        onClick={() => setShowRejectInput(false)}
+                                        className="flex-1 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-[12px] font-bold hover:bg-slate-50 transition-colors cursor-pointer"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={() => handleRejectPayment(viewingReceipt.id)}
+                                        disabled={rejecting}
+                                        className="flex-1 py-2 bg-rose-500 text-white rounded-lg text-[12px] font-bold hover:bg-rose-600 transition-colors disabled:opacity-50 cursor-pointer"
+                                    >
+                                        {rejecting ? 'Rejecting...' : 'Confirm Rejection'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {viewingReceipt.status === 'Pending' && !showRejectInput && (
+                            <div className="flex-shrink-0 flex gap-3">
+                                <button
+                                    onClick={() => setShowRejectInput(true)}
+                                    disabled={isAccountInactive}
+                                    className="flex-1 flex items-center justify-center gap-2 bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 font-bold py-3.5 rounded-2xl transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Reject Receipt
+                                </button>
                                 <button
                                     onClick={() => handleAcceptPayment(viewingReceipt.id)}
-                                    disabled={accepting}
-                                    className="w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-emerald-500/30 transition-all cursor-pointer disabled:opacity-50"
+                                    disabled={accepting || isAccountInactive}
+                                    className="flex-[2] flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-emerald-500/30 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    <CheckCircle size={18} /> {accepting ? 'Processing...' : 'Accept Payment & Update Balance'}
+                                    <CheckCircle size={18} /> {accepting ? 'Processing...' : 'Accept Payment'}
                                 </button>
-                                <p className="text-[11px] text-slate-500 text-center font-medium">Clicking this will accept the payment and reduce your outstanding balance.</p>
                             </div>
-                        ) : (
+                        )}
+
+                        {viewingReceipt.status === 'Accepted' && (
                             <div className="flex-shrink-0 bg-emerald-50 border border-emerald-100 rounded-2xl p-3 flex justify-center items-center gap-2">
                                 <CheckCircle size={16} className="text-emerald-500" />
                                 <span className="text-[13px] font-bold text-emerald-700">Payment Already Accepted</span>
+                            </div>
+                        )}
+
+                        {viewingReceipt.status === 'Rejected' && (
+                            <div className="flex-shrink-0 bg-rose-50 border border-rose-100 rounded-2xl p-4 flex flex-col gap-1.5">
+                                <div className="flex items-center gap-2 text-rose-600 font-bold text-[13px]">
+                                    <X size={16} /> Payment Rejected
+                                </div>
+                                <p className="text-[12px] text-slate-600 font-medium">
+                                    <span className="font-bold text-slate-700">Reason:</span> {viewingReceipt.rejectionReason || 'No specific reason provided.'}
+                                </p>
                             </div>
                         )}
                     </div>
