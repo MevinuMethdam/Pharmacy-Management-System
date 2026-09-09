@@ -18,6 +18,10 @@ import RackLocatorPage from '../pages/inventory/RackLocatorPage';
 import POSPage from '../pages/pos/POSPage';
 import BillingPage from '../pages/cashier/BillingPage';
 
+import SupplierSetupPage from '../pages/supplier/SupplierSetupPage';
+import SupplierDashboard from '../pages/supplier/SupplierDashboard';
+import SupplierLogin from '../pages/supplier/SupplierLogin';
+
 const PharmacistDashboard = () => <div className="p-10 text-2xl font-bold text-center mt-10">Pharmacist Dashboard ⚕️</div>;
 
 const POSWrapper = () => {
@@ -31,6 +35,17 @@ const AppRoutes = () => {
         <Routes>
             <Route path="/auth/login" element={<Login />} />
 
+            <Route path="/supplier-setup" element={<SupplierSetupPage />} />
+
+            <Route
+                path="/supplier/dashboard"
+                element={
+                    <ProtectedRoute allowedRoles={['Supplier']}>
+                        <SupplierDashboard />
+                    </ProtectedRoute>
+                }
+            />
+
             <Route path="/admin" element={<ProtectedRoute allowedRoles={['Admin']}><AdminDashboard /></ProtectedRoute>} />
             <Route path="/admin/inventory" element={<ProtectedRoute allowedRoles={['Admin']}><InventoryPage /></ProtectedRoute>} />
             <Route path="/admin/rack-locator" element={<ProtectedRoute allowedRoles={['Admin']}><RackLocatorPage /></ProtectedRoute>} />
@@ -40,6 +55,7 @@ const AppRoutes = () => {
             <Route path="/admin/nmra-logs" element={<ProtectedRoute allowedRoles={['Admin']}><NMRALogsPage /></ProtectedRoute>} />
             <Route path="/admin/crm" element={<ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}><CRMPage /></ProtectedRoute>} />
             <Route path="/admin/ai-outbreak" element={<ProtectedRoute allowedRoles={['Admin']}><AIOutbreakRadar /></ProtectedRoute>} />
+            <Route path="/supplier/login" element={<SupplierLogin />} />
 
             <Route path="/pharmacist/*" element={<ProtectedRoute allowedRoles={['Pharmacist', 'Admin']}><PharmacistDashboard /></ProtectedRoute>} />
 
