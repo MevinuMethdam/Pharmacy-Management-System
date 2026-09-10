@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import AdminLayout from '../../components/layout/AdminLayout';
-import { Receipt, Plus, Trash2, Calendar, FileText, Package, Search, X, CheckCircle } from 'lucide-react';
+import { Receipt, Plus, Trash2, Calendar, FileText, Package, Search, X, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import { inventoryApi } from '../../api/inventoryApi';
@@ -127,9 +127,7 @@ export default function PurchasesPage() {
         setLoading(true);
         try {
             const supRes = await axios.get('http://localhost:5000/api/suppliers').catch(err => { console.error("Supplier Error:", err); return { data: [] }; });
-
             const medRes = await inventoryApi.getAll().catch(err => { console.error("Medicine Error:", err); return { data: [] }; });
-
             const purRes = await axios.get('http://localhost:5000/api/purchases').catch(err => { console.error("Purchase Error:", err); return { data: [] }; });
 
             setSuppliers(supRes.data || []);
@@ -237,14 +235,39 @@ export default function PurchasesPage() {
     };
 
     const handleSupplierChange = (e) => {
+        const selectedSupplierId = e.target.value;
+        const selectedSup = suppliers.find(s => String(s.id) === String(selectedSupplierId));
+        const creditDays = selectedSup ? Number(selectedSup.creditPeriod || 0) : 0;
+
+        const invDateObj = new Date(formData.invoiceDate);
+        invDateObj.setDate(invDateObj.getDate() + creditDays);
+        const newDueDate = invDateObj.toISOString().split('T')[0];
+
         setFormData({
             ...formData,
-            supplierId: e.target.value,
+            supplierId: selectedSupplierId,
+            dueDate: newDueDate,
             items: [{
                 medicineId: '', medicineName: '', isNew: true, genericName: '', unit: 'Tablets', barcode: '', batchNumber: '',
                 expiryDate: '', quantity: '', costPrice: '', sellingPrice: '', subtotal: 0,
                 _uniqueCode: generateUniqueCode(), _manualBarcode: false
             }]
+        });
+    };
+
+    const handleInvoiceDateChange = (e) => {
+        const newInvoiceDate = e.target.value;
+        const selectedSup = suppliers.find(s => String(s.id) === String(formData.supplierId));
+        const creditDays = selectedSup ? Number(selectedSup.creditPeriod || 0) : 0;
+
+        const invDateObj = new Date(newInvoiceDate);
+        invDateObj.setDate(invDateObj.getDate() + creditDays);
+        const newDueDate = invDateObj.toISOString().split('T')[0];
+
+        setFormData({
+            ...formData,
+            invoiceDate: newInvoiceDate,
+            dueDate: newDueDate
         });
     };
 
@@ -345,38 +368,74 @@ export default function PurchasesPage() {
                                 <tr>
                                     <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Invoice / GRN No</th>
                                     <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Supplier</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Date</th>
+                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Invoice Date</th>
+                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Due Date</th>
                                     <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Total Amount</th>
                                     <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Status</th>
                                 </tr>
                                 </thead>
                                 <tbody>
                                 {loading ? (
-                                    <tr><td colSpan="5" className="text-center py-16 text-slate-500 font-medium text-[13px]">Loading GRN history...</td></tr>
+                                    <tr><td colSpan="6" className="text-center py-16 text-slate-500 font-medium text-[13px]">Loading GRN history...</td></tr>
                                 ) : filteredPurchases.length === 0 ? (
-                                    <tr><td colSpan="5" className="text-center py-16 text-slate-500 font-medium text-[13px]">No purchase records found.</td></tr>
-                                ) : filteredPurchases.map((purchase) => (
-                                    <tr key={purchase.id} className="group hover:bg-white/20 transition-colors border-b border-white/20 last:border-0">
-                                        <td className="py-4 align-top pt-5">
-                                            <p className="font-bold text-[14px] text-indigo-700">{purchase.invoiceNumber}</p>
-                                            <p className="text-[11px] text-slate-500 font-bold mt-1 font-mono">{purchase.grnNumber}</p>
-                                        </td>
-                                        <td className="py-4 align-top pt-5 text-[14px] font-bold text-[#1e293b]">
-                                            {purchase.supplier?.companyName || 'Unknown Supplier'}
-                                        </td>
-                                        <td className="py-4 align-top pt-5 text-[13px] font-medium text-slate-600">
-                                            <div className="flex items-center gap-1.5"><Calendar size={14} className="text-slate-400"/> {new Date(purchase.invoiceDate).toLocaleDateString()}</div>
-                                        </td>
-                                        <td className="py-4 align-top pt-5 text-[15px] font-black text-slate-800">
-                                            LKR {Number(purchase.totalAmount).toLocaleString(undefined, {minimumFractionDigits: 2})}
-                                        </td>
-                                        <td className="py-4 align-top pt-5">
-                                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-100/80 text-amber-700 border border-amber-200/50">
-                                                Unpaid
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))}
+                                    <tr><td colSpan="6" className="text-center py-16 text-slate-500 font-medium text-[13px]">No purchase records found.</td></tr>
+                                ) : filteredPurchases.map((purchase) => {
+
+                                    const status = purchase.paymentStatus || 'Unpaid';
+                                    const isPaid = status === 'Paid';
+                                    const isPartial = status === 'Partial';
+
+                                    return (
+                                        <tr key={purchase.id} className="group hover:bg-white/20 transition-colors border-b border-white/20 last:border-0">
+                                            <td className="py-4 align-top pt-5">
+                                                <p className="font-bold text-[14px] text-indigo-700">{purchase.invoiceNumber}</p>
+                                                <p className="text-[11px] text-slate-500 font-bold mt-1 font-mono">{purchase.grnNumber}</p>
+                                            </td>
+                                            <td className="py-4 align-top pt-5 text-[14px] font-bold text-[#1e293b]">
+                                                {purchase.supplier?.companyName || 'Unknown Supplier'}
+                                            </td>
+                                            <td className="py-4 align-top pt-5 text-[13px] font-medium text-slate-600">
+                                                <div className="flex items-center gap-1.5"><Calendar size={14} className="text-slate-400"/> {new Date(purchase.invoiceDate).toLocaleDateString()}</div>
+                                            </td>
+
+                                            <td className={`py-4 align-top pt-5 text-[13px] font-bold ${isPaid ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                                <div className="flex items-center gap-1.5">
+                                                    <Clock size={14} className={isPaid ? 'text-emerald-500' : 'text-rose-400'}/>
+                                                    {purchase.dueDate ? new Date(purchase.dueDate).toLocaleDateString() : '-'}
+                                                </div>
+                                            </td>
+
+                                            <td className="py-4 align-top pt-5">
+                                                <p className="text-[15px] font-black text-slate-800">
+                                                    LKR {Number(purchase.totalAmount).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                                                </p>
+                                                {(isPartial || isPaid) && (
+                                                    <p className="text-[10px] font-bold text-slate-400 mt-0.5">
+                                                        Paid: LKR {Number(purchase.paidAmount || 0).toLocaleString()}
+                                                    </p>
+                                                )}
+                                            </td>
+
+                                            <td className="py-4 align-top pt-5">
+                                                {isPaid && (
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-100/80 text-emerald-700 border border-emerald-200/50">
+                                                        <CheckCircle size={12} strokeWidth={3} /> Paid
+                                                    </span>
+                                                )}
+                                                {isPartial && (
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-100/80 text-blue-700 border border-blue-200/50">
+                                                        <AlertCircle size={12} strokeWidth={3} /> Partial
+                                                    </span>
+                                                )}
+                                                {!isPaid && !isPartial && (
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-100/80 text-amber-700 border border-amber-200/50">
+                                                        Unpaid
+                                                    </span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                                 </tbody>
                             </table>
                         </div>
@@ -426,10 +485,20 @@ export default function PurchasesPage() {
                                         <input type="text" disabled className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-[13px] font-bold text-slate-500 cursor-not-allowed"
                                                value={formData.grnNumber} />
                                     </div>
+
                                     <div>
                                         <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Invoice Date *</label>
                                         <input type="date" required className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[13px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer"
-                                               value={formData.invoiceDate} onChange={e => setFormData({...formData, invoiceDate: e.target.value})} />
+                                               value={formData.invoiceDate} onChange={handleInvoiceDateChange} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Credit Terms</label>
+                                        <input type="text" disabled className="w-full px-4 py-2.5 bg-indigo-50/50 border border-indigo-100 rounded-xl text-[13px] font-black text-indigo-700 cursor-not-allowed shadow-sm"
+                                               value={
+                                                   formData.supplierId
+                                                       ? `${suppliers.find(s => String(s.id) === String(formData.supplierId))?.creditPeriod || 0} Days`
+                                                       : 'Select Supplier First'
+                                               } />
                                     </div>
                                     <div>
                                         <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Due Date *</label>
