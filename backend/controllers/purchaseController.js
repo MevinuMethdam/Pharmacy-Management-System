@@ -144,7 +144,7 @@ exports.getAllPurchases = async (req, res) => {
     try {
         const purchases = await PurchaseInvoice.findAll({
             include: [
-                { model: Supplier, as: 'supplier', attributes: ['companyName'] },
+                { model: Supplier, as: 'supplier', attributes: ['id', 'companyName', 'brNumber'] },
                 { model: PurchaseItem, as: 'items', include: [{ model: Medicine, as: 'medicine', attributes: ['name'] }] }
             ],
             order: [['createdAt', 'DESC']]
@@ -163,7 +163,7 @@ exports.getSupplierPurchases = async (req, res) => {
         const purchases = await PurchaseInvoice.findAll({
             where: { supplierId: supplierId },
             include: [
-                { model: Supplier, as: 'supplier', attributes: ['companyName'] },
+                { model: Supplier, as: 'supplier', attributes: ['id', 'companyName', 'brNumber'] },
                 { model: PurchaseItem, as: 'items', include: [{ model: Medicine, as: 'medicine', attributes: ['name'] }] }
             ],
             order: [['createdAt', 'DESC']]
