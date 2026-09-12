@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import AdminLayout from '../../components/layout/AdminLayout';
-import { Package, Plus, Search, Edit, Trash2, PieChart as PieIcon, Truck, ShieldAlert, X, ScanBarcode, MapPin, Pill } from 'lucide-react';
+import { Package, Plus, Search, Edit, Trash2, PieChart as PieIcon, Truck, ShieldAlert, X, ScanBarcode, MapPin, Pill, AlertTriangle, CheckCircle, Archive, RefreshCw } from 'lucide-react';
 import { inventoryApi } from '../../api/inventoryApi';
 import Highcharts from 'highcharts';
 import Highcharts3D from 'highcharts/highcharts-3d';
 import HighchartsReact from 'highcharts-react-official';
 import toast from 'react-hot-toast';
-import axios from 'axios';
+import axios from '../../api/axiosInstance';
 
 if (typeof Highcharts === 'object' && !Highcharts.Chart.prototype.pan) {
 }
@@ -17,78 +17,142 @@ try {
     console.log("Highcharts 3D already initialized");
 }
 
+const ChartComponent = HighchartsReact.default || HighchartsReact;
+
 const COLORS = ['#38bdf8', '#10b981', '#6366f1', '#f59e0b', '#ec4899', '#8b5cf6'];
 
 const DOSAGE_UNITS = ["mg", "mcg", "g", "ml", "mg/ml", "IU", "%"];
 const COMMON_DOSAGES = ["250mg", "500mg", "1g", "5ml"];
 
+const BIN_CAPACITY = 100;
+
 const isValidFormatAndLimits = (loc) => {
     if (!loc) return false;
-    const match = loc.match(/^([A-Z]{3})-R(\d{2})-S(\d{2})-B(\d{2})$/i);
+    const match = loc.match(/^R(\d+)-S(\d+)-B(\d+)$/i);
     if (!match) return false;
-    const r = parseInt(match[2], 10);
-    const s = parseInt(match[3], 10);
-    const b = parseInt(match[4], 10);
-    return r >= 1 && r <= 99 && s >= 1 && s <= 5 && b >= 1 && b <= 10;
+    const r = parseInt(match[1], 10);
+    const s = parseInt(match[2], 10);
+    const b = parseInt(match[3], 10);
+    return r >= 1 && r <= 20 && s >= 1 && s <= 10 && b >= 1 && b <= 10;
 };
 
-const generateSmartRackLocation = (category, genericName, allMedicines) => {
-    const cat = category || 'OTH';
-    const prefix = cat.substring(0, 3).toUpperCase();
+const cleanRackFormat = (loc) => {
+    if (!loc) return '';
+    return loc.replace(/^[A-Z]{3}-/i, '').toUpperCase();
+};
 
-    let targetRack = 1;
-    let targetShelf = 1;
-    let targetBin = 0;
-    let foundGeneric = false;
+const toAbsoluteBin = (r, s, b) => {
+    return (r - 1) * 100 + (s - 1) * 10 + (b - 1);
+};
 
-    const processLocation = (loc) => {
-        if(!loc) return;
-        const match = loc.match(/^([A-Z]{3})-R(\d{2})-S(\d{2})-B(\d{2})$/i);
-        if(match) {
-            const r = parseInt(match[2], 10);
-            const s = parseInt(match[3], 10);
-            const b = parseInt(match[4], 10);
-            if (r <= 99 && s <= 5 && b <= 10) {
-                const currentScore = targetRack * 1000 + targetShelf * 100 + targetBin;
-                const newScore = r * 1000 + s * 100 + b;
-                if (newScore > currentScore) {
-                    targetRack = r; targetShelf = s; targetBin = b;
+const fromAbsToString = (abs) => {
+    const r = Math.floor(abs / 100) + 1;
+    const rem = abs % 100;
+    const s = Math.floor(rem / 10) + 1;
+    const b = (rem % 10) + 1;
+    const format2 = (n) => n.toString().padStart(2, '0');
+    return `R${format2(r)}-S${format2(s)}-B${format2(b)}`;
+};
+
+const generateSmartRackLocation = (allMedicines) => {
+    let maxAbsBin = -1;
+
+    allMedicines.forEach(m => {
+        if (!m.rackLocation || Number(m.quantity) <= 0) return;
+
+        const cleanedLoc = cleanRackFormat(m.rackLocation);
+        const match = cleanedLoc.match(/^R(\d+)-S(\d+)-B(\d+)$/i);
+
+        if (match) {
+            const r = parseInt(match[1], 10);
+            const s = parseInt(match[2], 10);
+            const b = parseInt(match[3], 10);
+
+            if (r >= 1 && r <= 20 && s >= 1 && s <= 10 && b >= 1 && b <= 10) {
+                const startAbs = toAbsoluteBin(r, s, b);
+                const binsTaken = Math.ceil((Number(m.quantity) || 1) / BIN_CAPACITY);
+                const endAbs = startAbs + binsTaken - 1;
+
+                if (endAbs > maxAbsBin) {
+                    maxAbsBin = endAbs;
                 }
             }
         }
-    };
+    });
 
-    if (genericName) {
-        const sameGenericMeds = allMedicines.filter(m =>
-            m.genericName?.toLowerCase() === genericName.toLowerCase() &&
-            m.rackLocation &&
-            m.rackLocation.toUpperCase().startsWith(prefix)
-        );
+    let nextAbsBin = maxAbsBin + 1;
+    if (nextAbsBin > 1999) nextAbsBin = 1999;
 
-        if (sameGenericMeds.length > 0) {
-            foundGeneric = true;
-            sameGenericMeds.forEach(m => processLocation(m.rackLocation));
+    return fromAbsToString(nextAbsBin);
+};
+
+const calculateBinSpan = (startLoc, qty) => {
+    if (!isValidFormatAndLimits(startLoc) || !qty || qty <= 0) return null;
+    const match = startLoc.match(/^R(\d+)-S(\d+)-B(\d+)$/i);
+    const r = parseInt(match[1], 10);
+    const s = parseInt(match[2], 10);
+    const b = parseInt(match[3], 10);
+
+    const startAbs = toAbsoluteBin(r, s, b);
+    const binsNeeded = Math.ceil(Number(qty) / BIN_CAPACITY);
+
+    if (binsNeeded <= 1) return { text: "Fits in 1 Bin", endLoc: startLoc, span: 1 };
+
+    let endAbs = startAbs + binsNeeded - 1;
+    if (endAbs > 1999) endAbs = 1999;
+
+    const endLoc = fromAbsToString(endAbs);
+
+    return { text: `Spans ${binsNeeded} Bins (Limit: ${BIN_CAPACITY}/bin)`, endLoc, span: binsNeeded };
+};
+
+const getRackError = (loc, currentQty, editingId, medicines) => {
+    if (!loc) return 'Rack location is required!';
+
+    const regex = /^R(\d+)-S(\d+)-B(\d+)$/i;
+    const match = loc.match(regex);
+
+    if (!match) return 'Format must be exactly: R00-S00-B00';
+
+    const rack = parseInt(match[1], 10);
+    const shelf = parseInt(match[2], 10);
+    const bin = parseInt(match[3], 10);
+
+    if (rack < 1 || rack > 20) return 'Invalid Rack! Maximum 20 Racks allowed.';
+    if (shelf < 1 || shelf > 10) return 'Invalid Shelf! Maximum 10 Shelves per rack allowed.';
+    if (bin < 1 || bin > 10) return 'Invalid Bin! Maximum 10 Bins per shelf allowed.';
+
+    const reqStartAbs = toAbsoluteBin(rack, shelf, bin);
+    const reqBinsTaken = Math.ceil((Number(currentQty) || 1) / BIN_CAPACITY);
+    const reqEndAbs = reqStartAbs + reqBinsTaken - 1;
+
+    if (reqEndAbs > 1999) return `Quantity requires ${reqBinsTaken} bins, which exceeds max pharmacy capacity!`;
+
+    for (let m of medicines) {
+        if (String(m.id) === String(editingId)) continue;
+        if (!m.rackLocation || Number(m.quantity) <= 0) continue;
+
+        const mLoc = cleanRackFormat(m.rackLocation);
+        const mMatch = mLoc.match(/^R(\d+)-S(\d+)-B(\d+)$/i);
+
+        if (mMatch) {
+            const mr = parseInt(mMatch[1], 10);
+            const ms = parseInt(mMatch[2], 10);
+            const mb = parseInt(mMatch[3], 10);
+
+            if (mr >= 1 && mr <= 20 && ms >= 1 && ms <= 10 && mb >= 1 && mb <= 10) {
+                const mStartAbs = toAbsoluteBin(mr, ms, mb);
+                const mBinsTaken = Math.ceil((Number(m.quantity) || 1) / BIN_CAPACITY);
+                const mEndAbs = mStartAbs + mBinsTaken - 1;
+
+                if (Math.max(reqStartAbs, mStartAbs) <= Math.min(reqEndAbs, mEndAbs)) {
+                    return `Location blocked! ${m.name} occupies bins up to ${fromAbsToString(mEndAbs)}`;
+                }
+            }
         }
     }
 
-    if (!foundGeneric) {
-        const catMeds = allMedicines.filter(m => m.rackLocation && m.rackLocation.toUpperCase().startsWith(prefix));
-        catMeds.forEach(m => processLocation(m.rackLocation));
-    }
-
-    targetBin += 1;
-
-    if (targetBin > 10) {
-        targetBin = 1;
-        targetShelf += 1;
-        if (targetShelf > 5) {
-            targetShelf = 1;
-            targetRack += 1;
-        }
-    }
-
-    const format2 = (n) => n.toString().padStart(2, '0');
-    return `${prefix}-R${format2(targetRack)}-S${format2(targetShelf)}-B${format2(targetBin)}`;
+    return '';
 };
 
 export default function InventoryPage() {
@@ -104,20 +168,81 @@ export default function InventoryPage() {
     const [submitting, setSubmitting] = useState(false);
     const [editingId, setEditingId] = useState(null);
 
+    const [actionModal, setActionModal] = useState({ isOpen: false, medicine: null });
+
     const [formData, setFormData] = useState({
         name: '', genericName: '', category: '', dosage: '', barcode: '', rackLocation: '', batchNumber: '',
         quantity: '', costPrice: '', sellingPrice: '', expiryDate: '', minStockLevel: 10, supplierId: '', isControlled: false
     });
 
+    const checkLowStock = (meds) => {
+        const configuredMeds = meds.filter(m => m.rackLocation && String(m.rackLocation).trim() !== '' && Number(m.quantity) > 0);
+        const lowStockMeds = configuredMeds.filter(m => m.quantity <= Number(m.minStockLevel || 10));
+
+        if (lowStockMeds.length > 0) {
+            toast.custom((t) => (
+                <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-white shadow-xl rounded-2xl pointer-events-auto flex ring-1 ring-black/5`}>
+                    <div className="flex-1 w-0 p-4">
+                        <div className="flex items-start">
+                            <div className="flex-shrink-0 pt-0.5">
+                                <AlertTriangle className="h-10 w-10 text-rose-500" />
+                            </div>
+                            <div className="ml-3 flex-1">
+                                <p className="text-[15px] font-bold text-rose-600">
+                                    {lowStockMeds.length} Medicines Low on Stock!
+                                </p>
+                                <div className="mt-1 text-[12px] text-slate-600 max-h-32 overflow-y-auto pr-2 custom-scrollbar bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                    {lowStockMeds.map(m => (
+                                        <div key={m.id} className="mb-2 border-b border-slate-200 last:border-0 pb-2 last:pb-0">
+                                            <span className="font-bold text-slate-800">{m.name}</span>
+                                            <div className="flex justify-between mt-0.5 text-[11px]">
+                                                <span>Min Level: <span className="font-medium text-slate-500">{m.minStockLevel || 10}</span></span>
+                                                <span>Current Qty: <span className="font-black text-rose-600">{m.quantity}</span></span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <p className="mt-3 text-[10px] text-emerald-600 font-bold flex items-center gap-1">
+                                    <CheckCircle size={12}/> Email Alert Sent to Admin
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex border-l border-slate-100">
+                        <button onClick={() => toast.dismiss(t.id)} className="w-full border border-transparent rounded-none rounded-r-2xl p-4 flex items-center justify-center text-sm font-bold text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors focus:outline-none cursor-pointer">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            ), { duration: 12000, position: 'bottom-right' });
+
+            axios.post('http://localhost:5000/api/notifications/trigger-low-stock-emails', { medicines: lowStockMeds })
+                .catch(err => {
+                    if (!axios.isCancel(err)) {
+                        console.log('Low Stock Email trigger request failed.', err);
+                    }
+                });
+        }
+    };
+
     const fetchData = async () => {
         setLoading(true);
         try {
-            const token = localStorage.getItem('token');
-            const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
-
-            const medRes = await axios.get('http://localhost:5000/api/medicines', config).catch(err => { console.error("Medicine Error:", err); return { data: [] }; });
-            const supRes = await axios.get('http://localhost:5000/api/suppliers', config).catch(err => { console.error("Supplier Error:", err); return { data: [] }; });
-            const purRes = await axios.get('http://localhost:5000/api/purchases', config).catch(err => { console.error("Purchase Error:", err); return { data: [] }; });
+            const medRes = await axios.get('http://localhost:5000/api/medicines').catch(err => {
+                if (!axios.isCancel(err)) {
+                    console.error("Medicine Error:", err);
+                    if (err.response?.status === 401) toast.error("Session expired! Please Logout and Login again.");
+                }
+                return { data: [] };
+            });
+            const supRes = await axios.get('http://localhost:5000/api/suppliers').catch(err => {
+                if (!axios.isCancel(err)) console.error("Supplier Error:", err);
+                return { data: [] };
+            });
+            const purRes = await axios.get('http://localhost:5000/api/purchases').catch(err => {
+                if (!axios.isCancel(err)) console.error("Purchase Error:", err);
+                return { data: [] };
+            });
 
             const loadedMedicines = Array.isArray(medRes?.data) ? medRes.data : [];
             const loadedSuppliers = Array.isArray(supRes?.data) ? supRes.data : [];
@@ -153,9 +278,14 @@ export default function InventoryPage() {
             setLatestMedDetails(detailsMap);
             setMedicines(loadedMedicines);
             setSuppliers(loadedSuppliers);
+
+            checkLowStock(loadedMedicines);
+
         } catch (err) {
-            toast.error('Failed to load inventory data');
-            console.error(err);
+            if (!axios.isCancel(err)) {
+                toast.error('Failed to load inventory data');
+                console.error(err);
+            }
         } finally {
             setLoading(false);
         }
@@ -167,7 +297,10 @@ export default function InventoryPage() {
 
     const highchartsOptions = useMemo(() => {
         const categoryMap = {};
-        medicines.forEach(med => {
+
+        const configuredMeds = medicines.filter(m => m.rackLocation && String(m.rackLocation).trim() !== '' && Number(m.quantity) > 0);
+
+        configuredMeds.forEach(med => {
             const cat = med.category || 'Other';
             if (!categoryMap[cat]) { categoryMap[cat] = 0; }
             categoryMap[cat] += Number(med.quantity || 0);
@@ -199,33 +332,8 @@ export default function InventoryPage() {
         return [...COMMON_DOSAGES, ...DOSAGE_UNITS];
     }, [formData.dosage]);
 
-    const getRackError = (loc) => {
-        if (!loc) return 'Rack location is required!';
-
-        const regex = /^([A-Z]{3})-R(\d{2})-S(\d{2})-B(\d{2})$/i;
-        const match = loc.match(regex);
-
-        if (!match) return 'Format must be exactly: XXX-R00-S00-B00';
-
-        const rack = parseInt(match[2], 10);
-        const shelf = parseInt(match[3], 10);
-        const bin = parseInt(match[4], 10);
-
-        if (rack < 1 || rack > 99) return 'Invalid Rack! Maximum Rack count is 99.';
-        if (shelf < 1 || shelf > 5) return 'Invalid Shelf! Maximum 5 Shelves per rack allowed.';
-        if (bin < 1 || bin > 10) return 'Invalid Bin! Maximum 10 Bins per shelf allowed.';
-
-        const duplicate = medicines.find(m =>
-            m.rackLocation?.toUpperCase() === loc.toUpperCase() &&
-            String(m.id) !== String(editingId)
-        );
-
-        if (duplicate) return `Location taken by: ${duplicate.name} (${duplicate.dosage || 'N/A'})`;
-
-        return '';
-    };
-
-    const rackError = getRackError(formData.rackLocation);
+    const rackError = getRackError(formData.rackLocation, formData.quantity, editingId, medicines);
+    const binSpanInfo = calculateBinSpan(formData.rackLocation, formData.quantity);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -285,9 +393,9 @@ export default function InventoryPage() {
             const catToUse = matchedMed.category || grnDetails.unit || 'Tablets';
             const genToUse = matchedMed.genericName || grnDetails.genericName || '';
 
-            let autoRack = matchedMed.rackLocation;
+            let autoRack = cleanRackFormat(matchedMed.rackLocation);
             if (!isValidFormatAndLimits(autoRack)) {
-                autoRack = generateSmartRackLocation(catToUse, genToUse, medicines);
+                autoRack = generateSmartRackLocation(medicines);
             }
 
             setFormData(prev => ({
@@ -313,15 +421,16 @@ export default function InventoryPage() {
         let formattedDate = '';
         if (med.expiryDate) { formattedDate = med.expiryDate.split('T')[0]; }
 
-        let finalRack = med.rackLocation || '';
+        let finalRack = cleanRackFormat(med.rackLocation);
         if (!isValidFormatAndLimits(finalRack)) {
-            finalRack = generateSmartRackLocation(med.category, med.genericName, medicines);
+            finalRack = generateSmartRackLocation(medicines);
         }
 
         setFormData({
             name: med.name, genericName: med.genericName || '', category: med.category || '', dosage: med.dosage || '', barcode: med.barcode || '',
             rackLocation: finalRack,
-            batchNumber: med.batchNumber || '', quantity: med.quantity || '', costPrice: med.costPrice || '', sellingPrice: med.sellingPrice || '', expiryDate: formattedDate, minStockLevel: med.minStockLevel || 10,
+            batchNumber: med.batchNumber || '', quantity: med.quantity || '', costPrice: med.costPrice || '', sellingPrice: med.sellingPrice || '', expiryDate: formattedDate,
+            minStockLevel: med.minStockLevel || 10,
             supplierId: med.supplierId || String(medSupplierMap[med.id]) || (med.supplier ? med.supplier.id : ''), isControlled: med.isControlled || false
         });
         setEditingId(med.id);
@@ -338,14 +447,66 @@ export default function InventoryPage() {
         }
     };
 
-    const filteredMedicines = medicines.filter(m =>
+    const executeStockAction = async (actionType) => {
+        if (!actionModal.medicine) return;
+        setSubmitting(true);
+        try {
+            await axios.post('http://localhost:5000/api/returns/adjust', {
+                medicineId: actionModal.medicine.id,
+                actionType: actionType
+            });
+
+            toast.success(actionType === 'return' ? 'Stock Returned & Debit Note Created! 💸' : 'Stock Disposed & Loss Recorded! 🗑️');
+            setActionModal({ isOpen: false, medicine: null });
+
+            fetchData();
+        } catch (err) {
+            if (!axios.isCancel(err)) {
+                toast.error('Failed to process stock action. Please check backend connection.');
+            }
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const configuredMedsForTable = medicines.filter(m => m.rackLocation && String(m.rackLocation).trim() !== '' && Number(m.quantity) > 0);
+
+    const filteredMedicines = configuredMedsForTable.filter(m =>
         m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (m.batchNumber && m.batchNumber.toLowerCase().includes(searchQuery.toLowerCase())) ||
         (m.barcode && m.barcode.includes(searchQuery))
     );
 
+    let canReturn = true;
+    let returnWindowMonths = 3;
+    let diffDays = 0;
+
+    if (actionModal.isOpen && actionModal.medicine) {
+        const sId = actionModal.medicine.supplierId || medSupplierMap[actionModal.medicine.id] || medSupplierMap[actionModal.medicine.name?.toLowerCase()];
+        const supplier = suppliers.find(s => String(s.id) === String(sId));
+
+        returnWindowMonths = supplier?.returnWindow !== undefined ? Number(supplier.returnWindow) : 3;
+
+        if (actionModal.medicine.expiryDate) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const expDate = new Date(actionModal.medicine.expiryDate);
+            expDate.setHours(0, 0, 0, 0);
+
+            diffDays = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+            canReturn = diffDays >= (returnWindowMonths * 30);
+        } else {
+            canReturn = false;
+        }
+    }
+
     return (
         <AdminLayout>
+            <style>{`
+                @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+                .animate-pulse-soft { animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+            `}</style>
+
             <div className="relative font-sans z-0 min-h-[calc(100vh-6rem)] bg-slate-50/80 backdrop-blur-[24px] rounded-[32px] border border-white/60 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden p-6 mb-4">
                 <div className="absolute inset-0 z-[-3] opacity-[0.03] pointer-events-none mix-blend-multiply" style={{ backgroundImage: "url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjEuNSIgZmlsbD0iIzBmMzQ2MCIvPjwvc3ZnPg==')" }}></div>
                 <div className="absolute top-[-20%] left-[-10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-br from-sky-200/20 to-slate-300/20 blur-[120px] pointer-events-none z-[-2]"></div>
@@ -398,66 +559,117 @@ export default function InventoryPage() {
                         </div>
                         <div className="h-[360px] w-full md:w-2/3 flex items-center justify-center overflow-visible">
                             <div className="w-full h-full">
-                                <HighchartsReact highcharts={Highcharts} options={highchartsOptions} containerProps={{ style: { width: '100%', height: '100%', overflow: 'visible' } }} />
+                                <ChartComponent highcharts={Highcharts} options={highchartsOptions} containerProps={{ style: { width: '100%', height: '100%', overflow: 'visible' } }} />
                             </div>
                         </div>
                     </div>
 
                     <div className="bg-white/30 backdrop-blur-2xl rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 overflow-hidden mb-6 flex flex-col">
-                        <div className="overflow-x-auto px-8 py-4">
-                            <table className="w-full text-left border-collapse">
+                        <div className="overflow-x-auto px-6 py-4">
+                            <table className="w-full text-left border-collapse table-fixed">
                                 <thead>
                                 <tr>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Medicine Name</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Category</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Batch #</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Stock Qty</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Unit Price (LKR)</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Expiry Date</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 text-right">Actions</th>
+                                    <th className="w-[20%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Medicine<br/>Name</th>
+                                    <th className="w-[12%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Category</th>
+                                    <th className="w-[12%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Batch #</th>
+                                    <th className="w-[11%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Stock<br/>Qty</th>
+                                    <th className="w-[12%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Unit Price<br/>(LKR)</th>
+                                    <th className="w-[12%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Expiry<br/>Date</th>
+                                    <th className="w-[10%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight text-center">Expiry<br/>Alerts</th>
+                                    <th className="w-[11%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight text-right pr-4">Actions</th>
                                 </tr>
                                 </thead>
                                 <tbody>
                                 {loading ? (
-                                    <tr><td colSpan="7" className="text-center py-16 text-slate-500 font-medium text-sm">Loading from database...</td></tr>
+                                    <tr><td colSpan="8" className="text-center py-16 text-slate-500 font-medium text-sm">Loading from database...</td></tr>
                                 ) : filteredMedicines.length === 0 ? (
-                                    <tr><td colSpan="7" className="text-center py-16 text-slate-500 font-medium text-sm">No medicines found in database.</td></tr>
+                                    <tr><td colSpan="8" className="text-center py-16 text-slate-500 font-medium text-sm">No medicines found in database.</td></tr>
                                 ) : (
-                                    filteredMedicines.map((med) => (
-                                        <tr key={med.id} className={`group transition-colors border-b border-white/20 last:border-0 ${med.isControlled ? 'bg-rose-100/30 backdrop-blur-sm' : 'hover:bg-white/20'}`}>
-                                            <td className="py-4 align-top pt-5">
-                                                <div className="flex items-center gap-2">
-                                                    <p className={`font-bold text-[14px] ${med.isControlled ? 'text-rose-700 font-black' : 'text-[#1e293b]'}`}>
-                                                        {med.name} {med.dosage && <span className="text-[11px] font-semibold text-slate-400">({med.dosage})</span>}
+                                    filteredMedicines.map((med) => {
+
+                                        const today = new Date();
+                                        today.setHours(0,0,0,0);
+                                        const expDate = new Date(med.expiryDate);
+                                        expDate.setHours(0,0,0,0);
+                                        const diffTime = expDate.getTime() - today.getTime();
+                                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                                        let alertUI = <span className="text-[11px] font-medium text-slate-400">-</span>;
+
+                                        if (diffDays <= 180) {
+                                            let colorConfig = { bg: '', text: '', border: '' };
+                                            let daysText = `${diffDays} Days`;
+
+                                            if (diffDays <= 0) {
+                                                colorConfig = { bg: 'bg-slate-200/80', text: 'text-slate-800', border: 'border-slate-300' };
+                                                daysText = 'Expired ☠️';
+                                            } else if (diffDays <= 60) {
+                                                colorConfig = { bg: 'bg-rose-100/80', text: 'text-rose-600', border: 'border-rose-200' };
+                                            } else if (diffDays <= 90) {
+                                                colorConfig = { bg: 'bg-orange-100/80', text: 'text-orange-600', border: 'border-orange-200' };
+                                            } else if (diffDays <= 180) {
+                                                colorConfig = { bg: 'bg-yellow-100/80', text: 'text-yellow-600', border: 'border-yellow-200' };
+                                            }
+
+                                            alertUI = (
+                                                <div className="flex flex-col items-center justify-center group" title={`Expires in ${diffDays} days`}>
+                                                    <div className={`p-1.5 ${colorConfig.bg} ${colorConfig.text} rounded-lg shadow-sm border ${colorConfig.border} ${diffDays <= 60 && diffDays > 0 ? 'animate-pulse-soft' : ''} transition-colors`}>
+                                                        <AlertTriangle size={18} strokeWidth={2.5} />
+                                                    </div>
+                                                    <span className={`text-[10px] font-bold ${colorConfig.text} mt-1 whitespace-nowrap`}>
+                                                        {daysText}
+                                                    </span>
+                                                </div>
+                                            );
+                                        }
+
+                                        return (
+                                            <tr key={med.id} className={`group transition-colors border-b border-white/20 last:border-0 ${med.isControlled ? 'bg-rose-100/30 backdrop-blur-sm' : 'hover:bg-white/20'}`}>
+                                                <td className="py-4 align-top pt-5">
+                                                    <div className="flex items-center gap-2">
+                                                        <p className={`font-bold text-[14px] ${med.isControlled ? 'text-rose-700 font-black' : 'text-[#1e293b]'}`}>
+                                                            {med.name} {med.dosage && <span className="text-[11px] font-semibold text-slate-400">({med.dosage})</span>}
+                                                        </p>
+                                                        {med.isControlled && (
+                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-100/80 text-rose-700 rounded-md text-[10px] font-bold border border-rose-200/50 backdrop-blur-sm" title="NMRA Controlled Drug"><ShieldAlert size={12} /> Controlled</span>
+                                                        )}
+                                                    </div>
+                                                    <p className={`text-[12px] mt-0.5 ${med.isControlled ? 'text-rose-500 font-medium' : 'text-slate-500 font-medium'}`}>
+                                                        {med.genericName || med.supplier?.companyName || 'N/A'}
+                                                        {med.rackLocation && <span className="ml-2 inline-flex items-center gap-0.5 text-sky-600 font-semibold"><MapPin size={10}/> Rack: {med.rackLocation}</span>}
                                                     </p>
-                                                    {med.isControlled && (
-                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-100/80 text-rose-700 rounded-md text-[10px] font-bold border border-rose-200/50 backdrop-blur-sm" title="NMRA Controlled Drug"><ShieldAlert size={12} /> Controlled</span>
-                                                    )}
-                                                </div>
-                                                <p className={`text-[12px] mt-0.5 ${med.isControlled ? 'text-rose-500 font-medium' : 'text-slate-500 font-medium'}`}>
-                                                    {med.genericName || med.supplier?.companyName || 'N/A'}
-                                                    {med.rackLocation && <span className="ml-2 inline-flex items-center gap-0.5 text-sky-600 font-semibold"><MapPin size={10}/> Rack: {med.rackLocation}</span>}
-                                                </p>
-                                            </td>
-                                            <td className="py-4 align-top pt-5">
-                                                <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${med.isControlled ? 'bg-rose-100/80 text-rose-700 border border-rose-200/50 backdrop-blur-sm' : 'bg-white/50 text-sky-600 border border-white/60 shadow-sm backdrop-blur-sm'}`}>{med.category}</span>
-                                            </td>
-                                            <td className={`py-4 align-top pt-5 text-[13px] font-mono font-bold ${med.isControlled ? 'text-rose-700' : 'text-slate-700'}`}>{med.batchNumber}</td>
-                                            <td className="py-4 align-top pt-5 text-[13px] font-bold">
-                                                <span className={med.quantity <= med.minStockLevel ? 'text-rose-600 bg-rose-100/80 backdrop-blur-sm px-2.5 py-1 rounded-lg border border-rose-200/50' : med.isControlled ? 'text-rose-700 font-black' : 'text-slate-700'}>
-                                                    {med.quantity} {med.quantity <= med.minStockLevel && '⚠️ Low'}
-                                                </span>
-                                            </td>
-                                            <td className={`py-4 align-top pt-5 text-[14px] font-bold ${med.isControlled ? 'text-rose-700' : 'text-[#1e293b]'}`}>LKR {Number(med.sellingPrice).toFixed(2)}</td>
-                                            <td className={`py-4 align-top pt-5 text-[13px] font-medium ${med.isControlled ? 'text-rose-600 font-bold' : 'text-slate-600'}`}>{new Date(med.expiryDate).toLocaleDateString()}</td>
-                                            <td className="py-4 align-top pt-4 text-right">
-                                                <div className="flex items-center justify-end gap-2">
-                                                    <button onClick={() => handleEdit(med)} className="p-1.5 text-slate-500 hover:text-sky-700 hover:bg-sky-100/50 rounded-lg transition-colors cursor-pointer" title="Edit Medicine"><Edit size={16} /></button>
-                                                    <button onClick={() => handleDelete(med.id)} className="p-1.5 text-slate-500 hover:text-rose-700 hover:bg-rose-100/50 rounded-lg transition-colors cursor-pointer" title="Delete Medicine"><Trash2 size={16} /></button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))
+                                                </td>
+                                                <td className="py-4 align-top pt-5">
+                                                    <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${med.isControlled ? 'bg-rose-100/80 text-rose-700 border border-rose-200/50 backdrop-blur-sm' : 'bg-white/50 text-sky-600 border border-white/60 shadow-sm backdrop-blur-sm'}`}>{med.category}</span>
+                                                </td>
+                                                <td className={`py-4 align-top pt-5 text-[13px] font-mono font-bold ${med.isControlled ? 'text-rose-700' : 'text-slate-700'}`}>{med.batchNumber}</td>
+                                                <td className="py-4 align-top pt-5 text-[13px] font-bold">
+                                                    <span className={med.quantity <= Number(med.minStockLevel) ? 'text-rose-600 bg-rose-100/80 backdrop-blur-sm px-2.5 py-1 rounded-lg border border-rose-200/50' : med.isControlled ? 'text-rose-700 font-black' : 'text-slate-700'}>
+                                                        {med.quantity} {med.quantity <= Number(med.minStockLevel) && '⚠️ Low'}
+                                                    </span>
+                                                </td>
+                                                <td className={`py-4 align-top pt-5 text-[14px] font-bold ${med.isControlled ? 'text-rose-700' : 'text-[#1e293b]'}`}>LKR {Number(med.sellingPrice).toFixed(2)}</td>
+                                                <td className={`py-4 align-top pt-5 text-[13px] font-medium ${med.isControlled ? 'text-rose-600 font-bold' : 'text-slate-600'}`}>{new Date(med.expiryDate).toLocaleDateString()}</td>
+                                                <td className="py-4 align-top pt-4 text-center">
+                                                    {alertUI}
+                                                </td>
+
+                                                <td className="py-4 align-top pt-4 pr-4 text-right">
+                                                    <div className="flex items-center justify-end gap-1.5 flex-nowrap">
+                                                        <button onClick={() => setActionModal({ isOpen: true, medicine: med })} className="p-1.5 text-slate-500 hover:text-indigo-700 hover:bg-indigo-100/50 rounded-lg transition-colors cursor-pointer" title="Return or Dispose Stock">
+                                                            <Archive size={16} />
+                                                        </button>
+                                                        <button onClick={() => handleEdit(med)} className="p-1.5 text-slate-500 hover:text-sky-700 hover:bg-sky-100/50 rounded-lg transition-colors cursor-pointer" title="Edit Medicine">
+                                                            <Edit size={16} />
+                                                        </button>
+                                                        <button onClick={() => handleDelete(med.id)} className="p-1.5 text-slate-500 hover:text-rose-700 hover:bg-rose-100/50 rounded-lg transition-colors cursor-pointer" title="Delete Medicine">
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
                                 )}
                                 </tbody>
                             </table>
@@ -466,8 +678,93 @@ export default function InventoryPage() {
                 </div>
             </div>
 
+            {actionModal.isOpen && actionModal.medicine && createPortal(
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
+                    <div className="bg-white/95 backdrop-blur-2xl p-6 md:p-8 rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[600px] flex flex-col relative animate-in fade-in zoom-in duration-200">
+
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <h2 className="text-[22px] font-bold text-slate-800 flex items-center gap-2.5">
+                                    <Archive className="text-rose-500" /> Stock Adjustment
+                                </h2>
+                                <p className="text-[12px] font-medium text-slate-500 mt-1">Select an action for the expired or damaged stock.</p>
+                            </div>
+                            <button onClick={() => setActionModal({ isOpen: false, medicine: null })} className="hover:bg-slate-100 p-2 rounded-full transition-colors cursor-pointer text-slate-400">
+                                <X className="w-6 h-6" />
+                            </button>
+                        </div>
+
+                        <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl mb-6">
+                            <p className="text-[15px] font-bold text-slate-800 mb-1">{actionModal.medicine.name} <span className="text-[12px] text-slate-500">({actionModal.medicine.category})</span></p>
+                            <div className="flex justify-between items-center text-[12px] text-slate-600 mt-3 border-t border-slate-200 pt-3">
+                                <div className="flex flex-col gap-0.5">
+                                    <span className="text-[10px] uppercase font-bold text-slate-400">Batch Number</span>
+                                    <span className="font-bold text-slate-700">{actionModal.medicine.batchNumber}</span>
+                                </div>
+                                <div className="flex flex-col gap-0.5 text-center">
+                                    <span className="text-[10px] uppercase font-bold text-slate-400">Stock Qty</span>
+                                    <span className="font-black text-rose-600 text-[14px]">{actionModal.medicine.quantity}</span>
+                                </div>
+                                <div className="flex flex-col gap-0.5 text-right">
+                                    <span className="text-[10px] uppercase font-bold text-slate-400">Total Value</span>
+                                    <span className="font-bold text-slate-800">LKR {(Number(actionModal.medicine.quantity) * Number(actionModal.medicine.costPrice)).toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col gap-4">
+                            {canReturn ? (
+                                <button
+                                    onClick={() => executeStockAction('return')}
+                                    disabled={submitting}
+                                    className="w-full flex items-start gap-4 p-5 rounded-2xl border-2 transition-all text-left group border-indigo-100 bg-indigo-50/50 hover:bg-indigo-50 hover:border-indigo-300 cursor-pointer"
+                                >
+                                    <div className="p-3 rounded-xl flex-shrink-0 transition-transform bg-indigo-100 text-indigo-600 group-hover:scale-110">
+                                        <RefreshCw size={24} />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[15px] font-bold text-indigo-800">
+                                            Return to Supplier (Debit Note)
+                                        </h4>
+                                        <p className="text-[12px] font-medium mt-1 leading-relaxed text-indigo-600/80">
+                                            Removes stock and auto-generates a Debit Note. The value <span className="font-bold">(LKR {(Number(actionModal.medicine.quantity) * Number(actionModal.medicine.costPrice)).toLocaleString(undefined, {minimumFractionDigits: 2})})</span> will be deducted from the supplier's outstanding balance.
+                                        </p>
+                                    </div>
+                                </button>
+                            ) : (
+                                <div className="w-full flex items-start gap-4 p-4 rounded-2xl border-2 border-slate-100 bg-slate-50/50 text-left">
+                                    <div className="p-2.5 bg-slate-200 text-slate-500 rounded-xl shrink-0">
+                                        <AlertTriangle size={20} />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[14px] font-bold text-slate-700">Return Window Expired</h4>
+                                        <p className="text-[11px] font-medium text-slate-500 mt-1 leading-relaxed">
+                                            Supplier requires minimum <span className="font-bold">{returnWindowMonths} months ({returnWindowMonths * 30} days)</span> to accept returns. Only <span className="font-bold text-rose-500">{diffDays} days</span> left. This stock cannot be returned and must be disposed.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            <button onClick={() => executeStockAction('dispose')} disabled={submitting} className="w-full flex items-start gap-4 p-5 rounded-2xl border-2 border-rose-100 bg-rose-50/50 hover:bg-rose-50 hover:border-rose-300 transition-all cursor-pointer text-left group disabled:opacity-50">
+                                <div className="p-3 bg-rose-100 text-rose-600 rounded-xl group-hover:scale-110 transition-transform flex-shrink-0">
+                                    <Trash2 size={24} />
+                                </div>
+                                <div>
+                                    <h4 className="text-[15px] font-bold text-rose-800">Dispose / Write-off</h4>
+                                    <p className="text-[12px] font-medium text-rose-600/80 mt-1 leading-relaxed">
+                                        Removes stock permanently and records the total value <span className="font-bold">(LKR {(Number(actionModal.medicine.quantity) * Number(actionModal.medicine.costPrice)).toLocaleString(undefined, {minimumFractionDigits: 2})})</span> as a business loss/expense.
+                                    </p>
+                                </div>
+                            </button>
+                        </div>
+
+                    </div>
+                </div>,
+                document.body
+            )}
+
             {isModalOpen && createPortal(
-                <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
+                <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-[9990] p-4">
                     <div className="bg-white/80 backdrop-blur-2xl p-8 rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-[700px] max-h-[90vh] overflow-y-auto hide-scrollbar">
 
                         <div className="flex justify-between items-center mb-6">
@@ -496,7 +793,7 @@ export default function InventoryPage() {
                                     >
                                         <option value="">-- Choose Supplier Company --</option>
                                         {suppliers.filter(s => s.status === 'Active').map(s => (
-                                            <option key={s.id} value={s.id}>{s.companyName} {s.repName ? `(Rep: ${s.repName})` : ''}</option>
+                                            <option key={s.id} value={s.id}>{s.companyName} {s.repName ? `(Rep: ${s.repName})` : ''} {s.brNumber ? `- NMRA: ${s.brNumber}` : ''}</option>
                                         ))}
                                     </select>
                                 </div>
@@ -527,7 +824,7 @@ export default function InventoryPage() {
 
                                                 if (!belongsToSupplier) return false;
 
-                                                const isAlreadyConfigured = m.sellingPrice && Number(m.sellingPrice) > 0 && m.rackLocation && isValidFormatAndLimits(m.rackLocation);
+                                                const isAlreadyConfigured = m.rackLocation && String(m.rackLocation).trim() !== '';
 
                                                 if (isAlreadyConfigured && String(m.id) !== String(editingId)) {
                                                     return false;
@@ -567,7 +864,7 @@ export default function InventoryPage() {
                                     </div>
                                     <div>
                                         <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><MapPin size={12}/> Rack / Shelf Location *</label>
-                                        <input type="text" required placeholder="e.g. TAB-R01-S01-B01"
+                                        <input type="text" required placeholder="e.g. R01-S01-B01"
                                                className={`w-full px-4 py-3 bg-white border ${rackError ? 'border-rose-400 ring-1 ring-rose-400 focus:ring-rose-500' : 'border-sky-200 focus:ring-2 focus:ring-sky-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none shadow-sm uppercase transition-all`}
                                                value={formData.rackLocation} onChange={e => setFormData({...formData, rackLocation: e.target.value.toUpperCase()})} />
 
@@ -575,9 +872,16 @@ export default function InventoryPage() {
                                             <p className="text-[10.5px] text-rose-500 font-bold mt-1.5 ml-1 leading-tight flex items-start gap-1">
                                                 <ShieldAlert size={12} className="shrink-0 mt-[1px]" /> <span>{rackError}</span>
                                             </p>
+                                        ) : binSpanInfo ? (
+                                            <div className="mt-2 bg-sky-50/80 p-2.5 rounded-xl border border-sky-100 shadow-sm backdrop-blur-sm">
+                                                <p className="text-[10px] text-sky-700 font-bold flex items-center gap-1 border-b border-sky-200/50 pb-1.5 mb-1.5"><Package size={12}/> Bin Allocation Map:</p>
+                                                <p className="text-[10px] text-slate-600 font-medium ml-4">Starts at: <span className="font-bold text-slate-800">{formData.rackLocation}</span></p>
+                                                {binSpanInfo.span > 1 && <p className="text-[10px] text-rose-600 mt-1 font-bold ml-4">Ends at: {binSpanInfo.endLoc} <br/><span className="text-slate-500 font-medium ml-2">- {binSpanInfo.text}</span></p>}
+                                                {binSpanInfo.span === 1 && <p className="text-[10px] text-emerald-600 mt-1 font-bold ml-4">{binSpanInfo.text} (Max: 100/Bin)</p>}
+                                            </div>
                                         ) : (
                                             <p className="text-[9px] text-sky-600 font-bold mt-1 ml-1 leading-tight">
-                                                Limits: 99 Racks | 5 Shelves (පේළි) | 10 Bins (ඉඩ)
+                                                Limits: 20 Racks | 10 Shelves (පේළි) | 10 Bins (ඉඩ)
                                             </p>
                                         )}
                                     </div>
@@ -619,9 +923,10 @@ export default function InventoryPage() {
                                 </div>
 
                                 <div>
-                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Min Stock Level (Alert)</label>
-                                    <input type="number" min="1" placeholder="10" className="w-full px-4 py-3 bg-white border border-sky-200 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm"
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 text-rose-500">Min Stock Level (Alert) *</label>
+                                    <input type="number" required min="0.01" step="0.01" placeholder="e.g. 10 or 0.5" className="w-full px-4 py-3 bg-white border border-rose-200 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-rose-500/40 shadow-sm"
                                            value={formData.minStockLevel} onChange={e => setFormData({...formData, minStockLevel: e.target.value})} />
+                                    <p className="text-[10px] text-slate-500 mt-1 ml-1 font-medium">Notification triggered if stock drops below this value.</p>
                                 </div>
                             </div>
 
