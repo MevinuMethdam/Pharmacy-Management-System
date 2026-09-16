@@ -8,5 +8,6 @@ router.post('/:id/invite', supplierController.sendInvite);
 router.post('/setup-password', supplierController.setupPassword);
 router.put('/:id', supplierController.updateSupplier);
 router.delete('/:id', supplierController.deleteSupplier);
+router.get('/verify-token/:token', supplierController.verifyToken);
 
 module.exports = router;
