@@ -2,6 +2,9 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
 const Supplier = require('../models/Supplier');
+const nodemailer = require('nodemailer');
+
+const otpStore = {};
 
 const login = async (req, res) => {
     try {
@@ -25,6 +28,43 @@ const login = async (req, res) => {
             return res.status(401).json({ message: 'Invalid email or password' });
         }
 
+        if (user.role === 'Admin') {
+            const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+            otpStore[user.id] = {
+                email: user.email,
+                otp: otpCode,
+                expires: Date.now() + 10 * 60 * 1000
+            };
+
+            const transporter = nodemailer.createTransport({
+                service: 'gmail',
+                auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+            });
+
+            const mailOptions = {
+                from: process.env.EMAIL_USER,
+                to: 'kegallepharmacy@gmail.com',
+                subject: 'Admin Login Security Code (OTP) - Ph4Life',
+                html: `
+                    <div style="font-family: Arial, sans-serif; max-w: 600px; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #f8fafc;">
+                        <h2 style="color: #0369a1; text-align: center;">Kegalle Ph4Life Admin Authentication</h2>
+                        <p style="text-align: center; color: #475569;">A login attempt was made with your Admin credentials. Use the 6-digit code below to securely sign in.</p>
+                        
+                        <div style="margin: 30px auto; padding: 15px; background-color: #ffffff; text-align: center; border: 2px dashed #bae6fd; border-radius: 8px;">
+                            <h1 style="color: #0284c7; letter-spacing: 0.5em; font-size: 32px; margin: 0;">${otpCode}</h1>
+                        </div>
+                        
+                        <p style="text-align: center; color: #94a3b8; font-size: 12px;">This code will expire in 10 minutes. If you did not attempt to sign in, please secure your account immediately.</p>
+                    </div>
+                `
+            };
+
+            await transporter.sendMail(mailOptions);
+
+            return res.status(200).json({ requiresOtp: true, message: 'OTP sent to pharmacy email' });
+        }
+
         const token = jwt.sign(
             { userId: user.id, role: user.role },
             process.env.JWT_SECRET,
@@ -45,6 +85,48 @@ const login = async (req, res) => {
     } catch (error) {
         console.error('Login Error:', error);
         res.status(500).json({ message: 'Server error during login' });
+    }
+};
+
+const verifyOtp = async (req, res) => {
+    try {
+        const { email, otp } = req.body;
+
+        const [users] = await db.query('SELECT * FROM users WHERE email = ?', {
+            replacements: [email]
+        });
+        const user = users[0];
+
+        if (!user) return res.status(401).json({ error: 'Invalid user' });
+
+        const storedData = otpStore[user.id];
+
+        if (!storedData || storedData.otp !== otp || Date.now() > storedData.expires) {
+            return res.status(401).json({ error: 'Invalid or expired OTP code.' });
+        }
+
+        delete otpStore[user.id];
+
+        const token = jwt.sign(
+            { userId: user.id, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: '8h' }
+        );
+
+        res.status(200).json({
+            message: 'OTP Verification successful',
+            token,
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                role: user.role
+            }
+        });
+
+    } catch (error) {
+        console.error("OTP Verification Error:", error);
+        res.status(500).json({ error: 'Server error during verification' });
     }
 };
 
@@ -192,4 +274,4 @@ const setupCashier = async (req, res) => {
     }
 };
 
-module.exports = { login, setupAdmin, cashierLogin, supplierLogin, setupCashier };
+module.exports = { login, verifyOtp, setupAdmin, cashierLogin, supplierLogin, setupCashier };
