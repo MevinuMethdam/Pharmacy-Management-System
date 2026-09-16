@@ -24,7 +24,7 @@ const Medicine = sequelize.define('Medicine', {
         allowNull: false
     },
     quantity: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 2),
         allowNull: false,
         validate: { min: 0 }
     },
@@ -43,8 +43,8 @@ const Medicine = sequelize.define('Medicine', {
         allowNull: false
     },
     minStockLevel: {
-        type: DataTypes.INTEGER,
-        defaultValue: 10
+        type: DataTypes.DECIMAL(10, 2),
+        defaultValue: 10.00
     },
     manufacturer: {
         type: DataTypes.STRING
@@ -54,7 +54,6 @@ const Medicine = sequelize.define('Medicine', {
         allowNull: false,
         defaultValue: false
     },
-
     supplierId: {
         type: DataTypes.INTEGER,
         allowNull: true,
