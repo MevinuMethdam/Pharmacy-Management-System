@@ -24,7 +24,7 @@ export const AuthProvider = ({ children }) => {
 
         if (userData.role === 'Admin') navigate('/admin');
         else if (userData.role === 'Pharmacist') navigate('/pharmacist');
-        else navigate('/pos');
+        else navigate('/cashier');
     };
 
     const logout = () => {
