@@ -2,11 +2,14 @@ import React, { useContext } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 
+import LandingPage from '../pages/LandingPage';
+
 import Login from '../pages/auth/Login';
 import ProtectedRoute from './ProtectedRoute';
 
 import AdminDashboard from '../pages/admin/AdminDashboard';
 import InventoryPage from '../pages/admin/InventoryPage';
+import ReturnsDisposalsPage from '../pages/admin/ReturnsDisposalsPage';
 import SuppliersPage from '../pages/admin/SuppliersPage';
 import PurchasesPage from '../pages/admin/PurchasesPage';
 import PrescriptionsPage from '../pages/prescriptions/PrescriptionsPage';
@@ -26,15 +29,18 @@ const PharmacistDashboard = () => <div className="p-10 text-2xl font-bold text-c
 
 const POSWrapper = () => {
     const { user } = useContext(AuthContext);
-
     return user?.role === 'Admin' ? <POSPage /> : <BillingPage />;
 };
 
 const AppRoutes = () => {
     return (
         <Routes>
-            <Route path="/auth/login" element={<Login />} />
+            <Route path="/" element={<LandingPage />} />
 
+            <Route path="/auth/login" element={<Login />} />
+            <Route path="/admin/login" element={<Login />} />
+
+            <Route path="/supplier/login" element={<SupplierLogin />} />
             <Route path="/supplier-setup" element={<SupplierSetupPage />} />
 
             <Route
@@ -48,6 +54,7 @@ const AppRoutes = () => {
 
             <Route path="/admin" element={<ProtectedRoute allowedRoles={['Admin']}><AdminDashboard /></ProtectedRoute>} />
             <Route path="/admin/inventory" element={<ProtectedRoute allowedRoles={['Admin']}><InventoryPage /></ProtectedRoute>} />
+            <Route path="/admin/returns" element={<ProtectedRoute allowedRoles={['Admin']}><ReturnsDisposalsPage /></ProtectedRoute>} />
             <Route path="/admin/rack-locator" element={<ProtectedRoute allowedRoles={['Admin']}><RackLocatorPage /></ProtectedRoute>} />
             <Route path="/admin/suppliers" element={<ProtectedRoute allowedRoles={['Admin']}><SuppliersPage /></ProtectedRoute>} />
             <Route path="/admin/purchases" element={<ProtectedRoute allowedRoles={['Admin']}><PurchasesPage /></ProtectedRoute>} />
@@ -55,7 +62,6 @@ const AppRoutes = () => {
             <Route path="/admin/nmra-logs" element={<ProtectedRoute allowedRoles={['Admin']}><NMRALogsPage /></ProtectedRoute>} />
             <Route path="/admin/crm" element={<ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}><CRMPage /></ProtectedRoute>} />
             <Route path="/admin/ai-outbreak" element={<ProtectedRoute allowedRoles={['Admin']}><AIOutbreakRadar /></ProtectedRoute>} />
-            <Route path="/supplier/login" element={<SupplierLogin />} />
 
             <Route path="/pharmacist/*" element={<ProtectedRoute allowedRoles={['Pharmacist', 'Admin']}><PharmacistDashboard /></ProtectedRoute>} />
 
@@ -68,7 +74,7 @@ const AppRoutes = () => {
                 }
             />
 
-            <Route path="*" element={<Navigate to="/auth/login" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
     );
 };
