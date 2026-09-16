@@ -50,6 +50,10 @@ const PurchaseInvoice = sequelize.define('PurchaseInvoice', {
     notes: {
         type: DataTypes.TEXT,
         allowNull: true
+    },
+    reminderSent: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
     }
 }, {
     tableName: 'purchase_invoices',
