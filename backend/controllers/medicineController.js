@@ -23,7 +23,7 @@ exports.addMedicine = async (req, res) => {
             costPrice: Number(costPrice),
             sellingPrice: Number(sellingPrice),
             expiryDate: new Date(expiryDate),
-            minStockLevel: minStockLevel ? Number(minStockLevel) : 10,
+            minStockLevel: minStockLevel ? Number(minStockLevel) : 10.00,
             manufacturer,
             isControlled: isControlled !== undefined ? isControlled : false,
 
@@ -42,7 +42,8 @@ exports.addMedicine = async (req, res) => {
                 type: 'success',
                 title: 'New Medicine Added',
                 message: `${name} (${batchNumber}) has been added to the inventory.`,
-                time: new Date()
+                time: new Date(),
+                target: 'admin'
             });
         }
     } catch (err) {
@@ -85,7 +86,7 @@ exports.updateMedicine = async (req, res) => {
             costPrice: Number(costPrice),
             sellingPrice: Number(sellingPrice),
             expiryDate: new Date(expiryDate),
-            minStockLevel: minStockLevel ? Number(minStockLevel) : 10,
+            minStockLevel: minStockLevel ? Number(minStockLevel) : 10.00,
             manufacturer,
             isControlled: isControlled !== undefined ? isControlled : false,
 
@@ -104,7 +105,8 @@ exports.updateMedicine = async (req, res) => {
                 type: 'info',
                 title: 'Medicine Updated',
                 message: `${name || medicine.name} has been updated.`,
-                time: new Date()
+                time: new Date(),
+                target: 'admin'
             });
         }
     } catch (err) {
@@ -130,7 +132,8 @@ exports.deleteMedicine = async (req, res) => {
                 type: 'warning',
                 title: 'Medicine Deleted',
                 message: `${medicine.name} was removed from the inventory.`,
-                time: new Date()
+                time: new Date(),
+                target: 'admin'
             });
         }
     } catch (err) {
