@@ -2,6 +2,7 @@ const { DataTypes } = require('sequelize');
 const sequelize = require('../config/db');
 
 const Supplier = sequelize.define('Supplier', {
+
     id: {
         type: DataTypes.INTEGER,
         primaryKey: true,
@@ -58,6 +59,23 @@ const Supplier = sequelize.define('Supplier', {
     totalOutstanding: {
         type: DataTypes.DECIMAL(12, 2),
         defaultValue: 0.00
+    },
+
+    password: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    inviteToken: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    tokenExpiry: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    portalStatus: {
+        type: DataTypes.STRING,
+        defaultValue: 'Pending'
     }
 }, {
     tableName: 'suppliers',
