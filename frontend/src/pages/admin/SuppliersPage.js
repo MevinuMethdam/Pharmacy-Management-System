@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import AdminLayout from '../../components/layout/AdminLayout';
 import {
     Search, Plus, Edit, Trash2, X, Truck, Building, User,
     Phone, FileText, Calendar, BarChart2, DollarSign, Mail,
     MapPin, CreditCard, Send, UploadCloud, CheckCircle, AlertCircle, AlertTriangle
 } from 'lucide-react';
-import axios from 'axios';
+import axios from '../../api/axiosInstance';
 import toast from 'react-hot-toast';
 import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
 
 export default function SuppliersPage() {
+    const navigate = useNavigate();
     const [suppliers, setSuppliers] = useState([]);
     const [loading, setLoading] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -25,6 +27,8 @@ export default function SuppliersPage() {
 
     const [formErrors, setFormErrors] = useState({});
 
+    const [rejectModal, setRejectModal] = useState({ isOpen: false, message: '' });
+
     const [paymentForm, setPaymentForm] = useState({
         amount: '',
         paymentDate: new Date().toISOString().split('T')[0],
@@ -37,8 +41,9 @@ export default function SuppliersPage() {
         repName: '',
         contactNumber: '',
         creditPeriod: 30,
+        returnWindow: 3,
         brNumber: '',
-        status: 'Active',
+        status: 'Inactive',
         email: '',
         address: '',
         officePhone: '',
@@ -48,33 +53,81 @@ export default function SuppliersPage() {
     });
 
     useEffect(() => {
-        fetchSuppliers();
+        const controller = new AbortController();
+        fetchSuppliers(controller);
+
+        return () => {
+            controller.abort();
+        };
     }, []);
 
-    const fetchSuppliers = async () => {
+    const fetchSuppliers = async (controller = null) => {
         setLoading(true);
         try {
-            const [supRes, payRes] = await Promise.all([
-                axios.get('http://localhost:5000/api/suppliers'),
-                axios.get('http://localhost:5000/api/supplier-payments').catch(() => ({ data: [] }))
+            const config = {
+                ...(controller && { signal: controller.signal })
+            };
+
+            const [supRes, payRes, purRes] = await Promise.all([
+                axios.get('http://localhost:5000/api/suppliers', config),
+                axios.get('http://localhost:5000/api/supplier-payments', config).catch((err) => {
+                    if (axios.isCancel(err)) throw err;
+                    return { data: [] };
+                }),
+                axios.get('http://localhost:5000/api/purchases', config).catch((err) => {
+                    if (axios.isCancel(err)) throw err;
+                    return { data: [] };
+                })
             ]);
 
             const suppliersData = supRes.data || [];
             const paymentsData = payRes.data || [];
+            const purchasesData = purRes.data || [];
+
+            const today = new Date();
+            today.setHours(0,0,0,0);
 
             const enhancedSuppliers = suppliersData.map(sup => {
                 const rejectedPayments = paymentsData.filter(p => String(p.supplierId) === String(sup.id) && p.status === 'Rejected');
                 const latestRejected = rejectedPayments.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))[0];
 
+                const supPurchases = purchasesData.filter(p => String(p.supplierId) === String(sup.id) && p.paymentStatus !== 'Paid');
+                let earliestDueInvoice = null;
+                let minDiffDays = Infinity;
+                let dueInvoicesList = [];
+
+                supPurchases.forEach(pur => {
+                    if (pur.dueDate) {
+                        const dueDateObj = new Date(pur.dueDate);
+                        dueDateObj.setHours(0,0,0,0);
+                        const diffTime = dueDateObj.getTime() - today.getTime();
+                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                        if (diffDays <= 5) {
+                            dueInvoicesList.push(pur.invoiceNumber);
+                            if (diffDays < minDiffDays) {
+                                minDiffDays = diffDays;
+                                earliestDueInvoice = { ...pur, diffDays };
+                            }
+                        }
+                    }
+                });
+
                 return {
                     ...sup,
-                    rejectionReason: latestRejected ? latestRejected.rejectionReason : null
+                    rejectionReason: latestRejected ? latestRejected.rejectionReason : null,
+                    dueInvoice: earliestDueInvoice,
+                    dueInvoicesList: dueInvoicesList
                 };
             });
 
             setSuppliers(enhancedSuppliers);
         } catch (err) {
-            toast.error('Failed to load suppliers data');
+            if (axios.isCancel(err)) {
+                console.log('API Request canceled to free browser connection pool.');
+            } else {
+                toast.error('Failed to load suppliers data');
+            }
         } finally {
             setLoading(false);
         }
@@ -86,6 +139,30 @@ export default function SuppliersPage() {
         let currentErrors = {};
         const phoneRegex = /^[0-9]{10}$/;
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const nmraRegex = /^WL\/\d{4}\/\d+$/i;
+
+        const isDuplicateCompany = suppliers.some(
+            sup => sup.companyName.toLowerCase().trim() === form.companyName.toLowerCase().trim() &&
+                (!editingSupplier || String(sup.id) !== String(editingSupplier.id))
+        );
+
+        if (isDuplicateCompany) {
+            currentErrors.companyName = 'This Company Name already exists';
+        }
+
+        if (!form.brNumber || form.brNumber.trim() === '') {
+            currentErrors.brNumber = 'NMRA License Number is required.';
+        } else if (!nmraRegex.test(form.brNumber)) {
+            currentErrors.brNumber = 'Format must be WL/[Year]/[Numbers] (e.g. WL/2026/0152)';
+        } else {
+            const isDuplicateNMRA = suppliers.some(
+                sup => sup.brNumber && sup.brNumber.toLowerCase().trim() === form.brNumber.toLowerCase().trim() &&
+                    (!editingSupplier || String(sup.id) !== String(editingSupplier.id))
+            );
+            if (isDuplicateNMRA) {
+                currentErrors.brNumber = 'This NMRA License Number is already registered.';
+            }
+        }
 
         if (!phoneRegex.test(form.contactNumber)) {
             currentErrors.contactNumber = 'Contact Number must be exactly 10 digits.';
@@ -93,11 +170,27 @@ export default function SuppliersPage() {
         if (form.officePhone && !phoneRegex.test(form.officePhone)) {
             currentErrors.officePhone = 'Office Phone must be exactly 10 digits.';
         }
-        if (form.email && !emailRegex.test(form.email)) {
-            currentErrors.email = 'Please enter a valid email address (e.g. name@domain.com).';
+
+        if (form.email) {
+            if (!emailRegex.test(form.email)) {
+                currentErrors.email = 'Please enter a valid email address (e.g. name@domain.com).';
+            } else {
+                const isDuplicateEmail = suppliers.some(
+                    sup => sup.email && sup.email.toLowerCase().trim() === form.email.toLowerCase().trim() &&
+                        (!editingSupplier || String(sup.id) !== String(editingSupplier.id))
+                );
+                if (isDuplicateEmail) {
+                    currentErrors.email = 'This email is already taken.';
+                }
+            }
         }
+
         if (form.creditPeriod === '' || Number(form.creditPeriod) < 0 || Number(form.creditPeriod) > 120) {
             currentErrors.creditPeriod = 'Credit Period must be between 0 and 120 days.';
+        }
+
+        if (form.returnWindow === '' || Number(form.returnWindow) < 0 || Number(form.returnWindow) > 36) {
+            currentErrors.returnWindow = 'Return Window must be between 0 and 36 months.';
         }
 
         if (Object.keys(currentErrors).length > 0) {
@@ -141,7 +234,7 @@ export default function SuppliersPage() {
         if (window.confirm('Are you sure you want to send a secure portal invitation email to this supplier?')) {
             const toastId = toast.loading('Sending invitation email...');
             try {
-                await axios.post(`http://localhost:5000/api/suppliers/${id}/invite`);
+                await axios.post(`http://localhost:5000/api/suppliers/${id}/invite`, {});
                 toast.success('Invitation email sent successfully!', { id: toastId });
                 fetchSuppliers();
             } catch (err) {
@@ -218,8 +311,9 @@ export default function SuppliersPage() {
             repName: supplier.repName || '',
             contactNumber: supplier.contactNumber || '',
             creditPeriod: supplier.creditPeriod || 30,
+            returnWindow: supplier.returnWindow !== undefined ? supplier.returnWindow : 3,
             brNumber: supplier.brNumber || '',
-            status: supplier.status || 'Active',
+            status: supplier.status || 'Inactive',
             email: supplier.email || '',
             address: supplier.address || '',
             officePhone: supplier.officePhone || '',
@@ -235,7 +329,7 @@ export default function SuppliersPage() {
         setEditingSupplier(null);
         setFormErrors({});
         setForm({
-            companyName: '', repName: '', contactNumber: '', creditPeriod: 30, brNumber: '', status: 'Active',
+            companyName: '', repName: '', contactNumber: '', creditPeriod: 30, returnWindow: 3, brNumber: '', status: 'Inactive',
             email: '', address: '', officePhone: '', bankName: '', accountNumber: '', accountName: ''
         });
     };
@@ -332,18 +426,19 @@ export default function SuppliersPage() {
                     )}
 
                     <div className="bg-white/30 backdrop-blur-2xl rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 overflow-hidden mb-4 flex flex-col">
-                        <div className="overflow-x-auto px-6 py-4">
-                            <table className="w-full text-left border-collapse">
+
+                        <div className="px-6 py-4">
+                            <table className="w-full text-left border-collapse table-fixed">
                                 <thead>
                                 <tr>
-                                    <th className="px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Company<br/>Name</th>
-                                    <th className="px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Medical<br/>Rep</th>
-                                    <th className="px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Contact</th>
-                                    <th className="px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Credit<br/>Period</th>
-                                    <th className="px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Outstanding<br/>Balance</th>
-                                    <th className="px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Status</th>
-                                    <th className="px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Alerts</th>
-                                    <th className="px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight text-right">Actions</th>
+                                    <th className="w-[14%] px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Company Name</th>
+                                    <th className="w-[12%] px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Medical Rep</th>
+                                    <th className="w-[16%] px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Contact</th>
+                                    <th className="w-[9%] px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Credit Period</th>
+                                    <th className="w-[13%] px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Outstanding Balance</th>
+                                    <th className="w-[9%] px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Status</th>
+                                    <th className="w-[9%] px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight text-center">Alerts</th>
+                                    <th className="w-[18%] px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight text-right pr-4">Actions</th>
                                 </tr>
                                 </thead>
                                 <tbody>
@@ -354,59 +449,69 @@ export default function SuppliersPage() {
                                 ) : filteredSuppliers.map((s) => (
                                     <tr key={s.id} className="group hover:bg-white/20 transition-colors border-b border-white/20 last:border-0">
                                         <td className="px-3 py-4 align-top pt-5">
-                                            <p className="font-bold text-[14px] text-[#1e293b] whitespace-nowrap">{s.companyName}</p>
-                                            {s.brNumber && <span className="block text-[11px] text-slate-400 font-medium mt-1">BR: {s.brNumber}</span>}
+                                            <p className="font-bold text-[14px] text-[#1e293b] break-words">{s.companyName}</p>
+                                            {s.brNumber && <span className="block text-[11px] text-slate-400 font-medium mt-1">NMRA: {s.brNumber}</span>}
                                         </td>
                                         <td className="px-3 py-4 align-top pt-5">
-                                            <span className="flex items-center gap-1.5 text-[13px] font-medium text-slate-600 whitespace-nowrap">
-                                                <User size={14} className="text-slate-400"/> {s.repName}
+                                            <span className="flex items-center gap-1.5 text-[13px] font-medium text-slate-600">
+                                                <User size={14} className="text-slate-400 flex-shrink-0"/> <span className="truncate">{s.repName}</span>
                                             </span>
                                         </td>
                                         <td className="px-3 py-4 align-top pt-5">
-                                            <div className="flex flex-col gap-1 min-w-[140px]">
-                                                <span className="flex items-center gap-1.5 text-[13px] font-medium text-slate-600"><Phone size={14} className="text-slate-400"/> {s.contactNumber}</span>
-                                                {s.email && <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500"><Mail size={12} className="text-slate-400"/> {s.email}</span>}
+                                            <div className="flex flex-col gap-1 w-full">
+                                                <span className="flex items-center gap-1.5 text-[13px] font-medium text-slate-600"><Phone size={14} className="text-slate-400 flex-shrink-0"/> {s.contactNumber}</span>
+                                                {s.email && <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 break-all"><Mail size={12} className="text-slate-400 flex-shrink-0"/> {s.email}</span>}
                                             </div>
                                         </td>
                                         <td className="px-3 py-4 align-top pt-5 text-[13px] font-bold text-slate-700">{s.creditPeriod} Days</td>
                                         <td className="px-3 py-4 align-top pt-5">
-                                            <span className={`text-[14px] font-black whitespace-nowrap ${Number(s.totalOutstanding) > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                                            <span className={`text-[14px] font-black ${Number(s.totalOutstanding) > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
                                                 LKR {Number(s.totalOutstanding || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}
                                             </span>
                                         </td>
                                         <td className="px-3 py-4 align-top pt-5">
-                                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold backdrop-blur-sm shadow-sm ${s.status === 'Active' ? 'bg-emerald-100/80 text-emerald-700 border border-emerald-200/50' : 'bg-rose-100/80 text-rose-700 border border-rose-200/50'}`}>
+                                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold backdrop-blur-sm shadow-sm ${s.status === 'Active' ? 'bg-emerald-100/80 text-emerald-700 border border-emerald-200/50' : 'bg-slate-100/80 text-slate-600 border border-slate-200/50'}`}>
                                                 {s.status}
                                             </span>
                                         </td>
 
-                                        <td className="px-3 py-4 align-top pt-5">
-                                            <div className="flex flex-col gap-1 w-full min-w-[140px]">
+                                        <td className="px-3 py-4 align-top pt-5 text-center">
+                                            <div className="flex justify-center items-center gap-3">
                                                 {s.rejectionReason && (
-                                                    <div className="flex flex-col gap-1 mb-1">
-                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-100/80 text-rose-700 border border-rose-200/50 w-fit">
-                                                            <AlertCircle size={10} strokeWidth={3} /> Payment Rejected
-                                                        </span>
-                                                        <p className="text-[10px] text-slate-500 font-medium leading-tight">
-                                                            <span className="font-bold text-slate-700">Reason:</span> {s.rejectionReason}
-                                                        </p>
+                                                    <div
+                                                        onClick={() => setRejectModal({ isOpen: true, message: s.rejectionReason })}
+                                                        className="flex flex-col items-center justify-center cursor-pointer group"
+                                                        title="Payment Rejected - Click to view reason"
+                                                    >
+                                                        <div className="p-1.5 bg-rose-100/80 text-rose-600 rounded-lg group-hover:bg-rose-200 transition-colors shadow-sm">
+                                                            <AlertCircle size={18} strokeWidth={2.5} />
+                                                        </div>
                                                     </div>
                                                 )}
 
-                                                {s.isPaymentDueIn5Days && (
-                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold bg-rose-50 text-rose-600 border border-rose-200 shadow-sm animate-pulse-soft w-fit">
-                                                        <AlertTriangle size={12} strokeWidth={2.5} /> Payment Due in 5 Days
-                                                    </span>
+                                                {s.dueInvoice && (
+                                                    <div
+                                                        onClick={() => navigate(`/admin/purchases`, { state: { highlightInvoices: s.dueInvoicesList } })}
+                                                        className="flex flex-col items-center justify-center cursor-pointer group"
+                                                        title="Payment Due - Click to view invoice"
+                                                    >
+                                                        <div className="p-1.5 bg-amber-100/80 text-amber-600 rounded-lg group-hover:bg-amber-200 transition-colors animate-pulse-soft shadow-sm">
+                                                            <AlertTriangle size={18} strokeWidth={2.5} />
+                                                        </div>
+                                                        <span className="text-[10px] font-bold text-amber-600 mt-1 whitespace-nowrap">
+                                                            {s.dueInvoice.diffDays < 0 ? 'Overdue' : `${s.dueInvoice.diffDays} Days`}
+                                                        </span>
+                                                    </div>
                                                 )}
 
-                                                {!s.rejectionReason && !s.isPaymentDueIn5Days && (
+                                                {!s.rejectionReason && !s.dueInvoice && (
                                                     <span className="text-[11px] font-medium text-slate-400">-</span>
                                                 )}
                                             </div>
                                         </td>
 
-                                        <td className="px-3 py-4 align-top pt-4 text-right">
-                                            <div className="flex justify-end gap-2">
+                                        <td className="px-3 py-4 align-top pt-4 pr-4 text-right">
+                                            <div className="flex justify-end gap-1.5 flex-nowrap whitespace-nowrap">
                                                 <button onClick={() => handleSendInvite(s.id)} className="p-1.5 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-100/50 rounded-lg transition-colors cursor-pointer" title="Send Portal Invite"><Send size={16} /></button>
                                                 <button onClick={() => openPaymentModal(s)} className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/50 rounded-lg transition-colors cursor-pointer" title="Make Payment"><DollarSign size={16} strokeWidth={2.5} /></button>
                                                 <button onClick={() => openEdit(s)} className="p-1.5 text-slate-500 hover:text-sky-700 hover:bg-sky-100/50 rounded-lg transition-colors cursor-pointer" title="Edit Supplier"><Edit size={16} /></button>
@@ -421,6 +526,32 @@ export default function SuppliersPage() {
                     </div>
                 </div>
             </div>
+
+            {rejectModal.isOpen && (
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
+                    <div className="bg-white p-6 rounded-[24px] shadow-2xl border border-slate-100 max-w-sm w-full animate-in fade-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-4">
+                            <div className="flex items-center gap-2.5 text-rose-600">
+                                <AlertCircle size={24} strokeWidth={2.5} />
+                                <h3 className="font-bold text-lg">Payment Rejected</h3>
+                            </div>
+                            <button onClick={() => setRejectModal({ isOpen: false, message: '' })} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full p-1.5 transition-colors cursor-pointer">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="bg-rose-50 p-4 rounded-xl border border-rose-100 mb-6">
+                            <p className="text-[13px] font-medium text-slate-700 leading-relaxed">
+                                {rejectModal.message}
+                            </p>
+                        </div>
+                        <div className="flex justify-end">
+                            <button onClick={() => setRejectModal({ isOpen: false, message: '' })} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-sm font-bold rounded-xl transition-colors cursor-pointer shadow-sm">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {isPaymentModalOpen && paymentSupplier && (
                 <div className="fixed inset-0 bg-black/40 backdrop-blur-md flex items-center justify-center z-[100] p-4">
@@ -505,42 +636,156 @@ export default function SuppliersPage() {
 
                             <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 mb-6">
                                 <h3 className="text-[12px] font-extrabold text-sky-600 uppercase tracking-widest border-b border-slate-200 pb-2 mb-4">Account Status & Terms</h3>
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-3 gap-4">
                                     <div>
-                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Supplier Status <span className="text-rose-500">*</span></label>
-                                        <select required className="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm cursor-pointer" value={form.status} onChange={(e) => setForm({...form, status: e.target.value})}>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 whitespace-nowrap">Supplier Status <span className="text-rose-500">*</span></label>
+                                        <select
+                                            required
+                                            className={`w-full px-4 py-3 border rounded-2xl text-[14px] font-bold outline-none focus:ring-2 shadow-sm ${!editingSupplier ? 'bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed' : 'bg-white border-slate-200 text-slate-800 focus:ring-sky-500/40 cursor-pointer'}`}
+                                            value={form.status}
+                                            onChange={(e) => setForm({...form, status: e.target.value})}
+                                            disabled={!editingSupplier}
+                                        >
                                             <option value="Active">Active</option>
                                             <option value="Inactive">Inactive</option>
                                         </select>
+                                        {!editingSupplier && <p className="text-[9px] font-bold text-slate-400 mt-1.5 ml-1">* Supplier will be Active after setting password</p>}
                                     </div>
                                     <div>
-                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Credit Period (Days) <span className="text-rose-500">*</span></label>
-                                        <input type="number" required min="0" max="120" className={`w-full px-4 py-3 bg-white border ${formErrors.creditPeriod ? 'border-rose-500 focus:ring-rose-500/40' : 'border-slate-200 focus:ring-sky-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 shadow-sm`} value={form.creditPeriod} onChange={(e) => { setForm({...form, creditPeriod: e.target.value}); setFormErrors({...formErrors, creditPeriod: null}); }} />
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 whitespace-nowrap">Credit Period (Days) <span className="text-rose-500">*</span></label>
+                                        <input type="number" required min="0" max="120" className={`w-full px-4 py-3 bg-white border ${formErrors.creditPeriod ? 'border-rose-500 focus:ring-rose-500/40' : 'border-slate-200 focus:ring-sky-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 shadow-sm`}
+                                               value={form.creditPeriod}
+                                               onChange={(e) => {
+                                                   const val = e.target.value;
+                                                   setForm({...form, creditPeriod: val});
+                                                   let err = null;
+                                                   if (val === '' || Number(val) < 0 || Number(val) > 120) {
+                                                       err = 'Credit Period must be between 0 and 120 days.';
+                                                   }
+                                                   setFormErrors(prev => ({...prev, creditPeriod: err}));
+                                               }}
+                                        />
                                         {formErrors.creditPeriod && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1 flex items-center gap-1"><AlertCircle size={10}/> {formErrors.creditPeriod}</p>}
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 whitespace-nowrap">Return Window (Months) <span className="text-rose-500">*</span></label>
+                                        <input type="number" required min="0" max="36" className={`w-full px-4 py-3 bg-white border ${formErrors.returnWindow ? 'border-rose-500 focus:ring-rose-500/40' : 'border-slate-200 focus:ring-sky-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 shadow-sm`}
+                                               value={form.returnWindow}
+                                               onChange={(e) => {
+                                                   const val = e.target.value;
+                                                   setForm({...form, returnWindow: val});
+                                                   let err = null;
+                                                   if (val === '' || Number(val) < 0 || Number(val) > 36) {
+                                                       err = 'Must be between 0 and 36 months.';
+                                                   }
+                                                   setFormErrors(prev => ({...prev, returnWindow: err}));
+                                               }}
+                                        />
+                                        {formErrors.returnWindow && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1 flex items-center gap-1"><AlertCircle size={10}/> {formErrors.returnWindow}</p>}
                                     </div>
                                 </div>
                             </div>
 
                             <div className="space-y-4">
                                 <h3 className="text-[12px] font-extrabold text-sky-600 uppercase tracking-widest border-b border-white pb-2">General Info</h3>
-                                <div><label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Company Name <span className="text-rose-500">*</span></label><input type="text" required className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.companyName} onChange={(e) => setForm({...form, companyName: e.target.value})} /></div>
+
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Company Name <span className="text-rose-500">*</span></label>
+                                    <input type="text" required className={`w-full px-4 py-3 bg-white/60 border ${formErrors.companyName ? 'border-rose-500 focus:ring-rose-500/40' : 'border-white/80 focus:ring-sky-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 shadow-sm backdrop-blur-sm`}
+                                           value={form.companyName}
+                                           onChange={(e) => {
+                                               const val = e.target.value;
+                                               setForm({...form, companyName: val});
+                                               const isDup = suppliers.some(sup => sup.companyName.toLowerCase().trim() === val.toLowerCase().trim() && (!editingSupplier || String(sup.id) !== String(editingSupplier.id)));
+                                               setFormErrors(prev => ({...prev, companyName: isDup ? 'This Company Name already exists' : null}));
+                                           }}
+                                    />
+                                    {formErrors.companyName && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1 flex items-center gap-1"><AlertCircle size={10}/> {formErrors.companyName}</p>}
+                                </div>
+
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                                        <FileText size={14}/> NMRA Wholesale License No <span className="text-rose-500">*</span>
+                                    </label>
+                                    <input type="text" required placeholder="e.g. WL/2026/0152"
+                                           className={`w-full px-4 py-3 bg-white/60 border ${formErrors.brNumber ? 'border-rose-500 focus:ring-rose-500/40' : 'border-white/80 focus:ring-sky-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 shadow-sm backdrop-blur-sm`}
+                                           value={form.brNumber}
+                                           onChange={(e) => {
+                                               const val = e.target.value;
+                                               setForm({...form, brNumber: val});
+                                               let err = null;
+                                               const nmraRegex = /^WL\/\d{4}\/\d+$/i;
+                                               if (val && !nmraRegex.test(val)) {
+                                                   err = 'Format must be WL/[Year]/[Numbers] (e.g. WL/2026/0152)';
+                                               } else if (val) {
+                                                   const isDup = suppliers.some(sup => sup.brNumber && sup.brNumber.toLowerCase().trim() === val.toLowerCase().trim() && (!editingSupplier || String(sup.id) !== String(editingSupplier.id)));
+                                                   if (isDup) err = 'This NMRA License Number is already registered.';
+                                               }
+                                               setFormErrors(prev => ({...prev, brNumber: err}));
+                                           }}
+                                    />
+                                    {formErrors.brNumber && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1 flex items-center gap-1"><AlertCircle size={10}/> {formErrors.brNumber}</p>}
+                                </div>
+
                                 <div className="grid grid-cols-2 gap-4">
                                     <div><label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Medical Rep Name <span className="text-rose-500">*</span></label><input type="text" required className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.repName} onChange={(e) => setForm({...form, repName: e.target.value})} /></div>
                                     <div>
                                         <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Contact Number <span className="text-rose-500">*</span></label>
-                                        <input type="text" required placeholder="07XXXXXXXX" className={`w-full px-4 py-3 bg-white/60 border ${formErrors.contactNumber ? 'border-rose-500 focus:ring-rose-500/40' : 'border-white/80 focus:ring-sky-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 shadow-sm backdrop-blur-sm`} value={form.contactNumber} onChange={(e) => { setForm({...form, contactNumber: e.target.value}); setFormErrors({...formErrors, contactNumber: null}); }} />
+                                        <input type="text" required placeholder="07XXXXXXXX" className={`w-full px-4 py-3 bg-white/60 border ${formErrors.contactNumber ? 'border-rose-500 focus:ring-rose-500/40' : 'border-white/80 focus:ring-sky-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 shadow-sm backdrop-blur-sm`}
+                                               value={form.contactNumber}
+                                               onChange={(e) => {
+                                                   const val = e.target.value;
+                                                   setForm({...form, contactNumber: val});
+                                                   let err = null;
+                                                   if (val && !/^[0-9]{10}$/.test(val)) {
+                                                       err = 'Contact Number must be exactly 10 digits.';
+                                                   }
+                                                   setFormErrors(prev => ({...prev, contactNumber: err}));
+                                               }}
+                                        />
                                         {formErrors.contactNumber && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1 flex items-center gap-1"><AlertCircle size={10}/> {formErrors.contactNumber}</p>}
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Email Address <span className="text-rose-500">*</span></label>
-                                        <input type="text" required className={`w-full px-4 py-3 bg-white/60 border ${formErrors.email ? 'border-rose-500 focus:ring-rose-500/40' : 'border-white/80 focus:ring-sky-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 shadow-sm backdrop-blur-sm`} value={form.email} onChange={(e) => { setForm({...form, email: e.target.value}); setFormErrors({...formErrors, email: null}); }} />
+                                        <input type="text" required className={`w-full px-4 py-3 bg-white/60 border ${formErrors.email ? 'border-rose-500 focus:ring-rose-500/40' : 'border-white/80 focus:ring-sky-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 shadow-sm backdrop-blur-sm`}
+                                               value={form.email}
+                                               onChange={(e) => {
+                                                   const val = e.target.value;
+                                                   setForm({...form, email: val});
+                                                   let err = null;
+                                                   if (val && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+                                                       err = 'Please enter a valid email address (e.g. name@domain.com).';
+                                                   } else if (val) {
+                                                       const isDuplicateEmail = suppliers.some(
+                                                           sup => sup.email && sup.email.toLowerCase().trim() === val.toLowerCase().trim() &&
+                                                               (!editingSupplier || String(sup.id) !== String(editingSupplier.id))
+                                                       );
+                                                       if (isDuplicateEmail) {
+                                                           err = 'This email is already taken.';
+                                                       }
+                                                   }
+                                                   setFormErrors(prev => ({...prev, email: err}));
+                                               }}
+                                        />
                                         {formErrors.email && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1 flex items-center gap-1"><AlertCircle size={10}/> {formErrors.email}</p>}
                                     </div>
                                     <div>
                                         <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Office Phone</label>
-                                        <input type="text" placeholder="Optional" className={`w-full px-4 py-3 bg-white/60 border ${formErrors.officePhone ? 'border-rose-500 focus:ring-rose-500/40' : 'border-white/80 focus:ring-sky-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 shadow-sm backdrop-blur-sm`} value={form.officePhone} onChange={(e) => { setForm({...form, officePhone: e.target.value}); setFormErrors({...formErrors, officePhone: null}); }} />
+                                        <input type="text" placeholder="Optional" className={`w-full px-4 py-3 bg-white/60 border ${formErrors.officePhone ? 'border-rose-500 focus:ring-rose-500/40' : 'border-white/80 focus:ring-sky-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 shadow-sm backdrop-blur-sm`}
+                                               value={form.officePhone}
+                                               onChange={(e) => {
+                                                   const val = e.target.value;
+                                                   setForm({...form, officePhone: val});
+                                                   let err = null;
+                                                   if (val && !/^[0-9]{10}$/.test(val)) {
+                                                       err = 'Office Phone must be exactly 10 digits.';
+                                                   }
+                                                   setFormErrors(prev => ({...prev, officePhone: err}));
+                                               }}
+                                        />
                                         {formErrors.officePhone && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1 flex items-center gap-1"><AlertCircle size={10}/> {formErrors.officePhone}</p>}
                                     </div>
                                 </div>
@@ -553,7 +798,6 @@ export default function SuppliersPage() {
                                     <div><label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Account Number</label><input type="text" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.accountNumber} onChange={(e) => setForm({...form, accountNumber: e.target.value})} /></div>
                                 </div>
                                 <div><label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><CreditCard size={14}/> Account Name</label><input type="text" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.accountName} onChange={(e) => setForm({...form, accountName: e.target.value})} /></div>
-                                <div><label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><FileText size={14}/> BR / License Number</label><input type="text" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm" value={form.brNumber} onChange={(e) => setForm({...form, brNumber: e.target.value})} /></div>
                             </div>
                             <button type="submit" disabled={submitting} className="w-full mt-6 bg-sky-500/90 backdrop-blur-md text-white font-bold py-3.5 rounded-2xl shadow-[0_10px_25px_-5px_rgba(2,132,199,0.3)] hover:bg-sky-600 transition-all active:scale-[0.98] text-[15px] cursor-pointer disabled:opacity-50 border border-sky-400/50">
                                 {submitting ? 'Saving...' : 'Save Supplier'}
