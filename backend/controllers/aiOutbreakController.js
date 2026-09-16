@@ -1,83 +1,66 @@
 const { Op } = require('sequelize');
-const Prescription = require('../models/Prescription');
-const PrescriptionItem = require('../models/PrescriptionItem');
 const Medicine = require('../models/Medicine');
 const AIOutbreakLog = require('../models/AIOutbreakLog');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const axios = require('axios');
 
 const genAI = new GoogleGenerativeAI(process.env.AI_ANALYSIS_GEMINI_API_KEY);
 
 exports.analyzeOutbreakTrends = async (req, res) => {
     try {
-        const fourteenDaysAgo = new Date();
-        fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+        let newsData = "";
+        try {
+            const rssUrl = encodeURIComponent('https://news.google.com/rss/search?q=(dengue OR fever OR flu OR virus OR outbreak OR disease OR infection) "Sri Lanka" when:14d&hl=en-US&gl=US&ceid=US:en');
+            const newsRes = await axios.get(`https://api.rss2json.com/v1/api.json?rss_url=${rssUrl}`);
 
-        const recentItems = await PrescriptionItem.findAll({
-            include: [
-                {
-                    model: Prescription,
-                    as: 'prescription',
-                    where: { createdAt: { [Op.gte]: fourteenDaysAgo } },
-                    attributes: []
-                },
-                {
-                    model: Medicine,
-                    as: 'medicine',
-                    attributes: ['name']
-                }
-            ]
-        });
-
-        if (!recentItems || recentItems.length === 0) {
-            return res.status(200).json({
-                riskLevel: "Low",
-                summaryMessage: "(Not enough data in the last 14 days)",
-                identifiedTrends: [],
-                stockRecommendations: []
-            });
+            if (newsRes.data && newsRes.data.items) {
+                const articles = newsRes.data.items.slice(0, 10); 
+                newsData = articles.map(a => `- Headline: ${a.title} (Published: ${a.pubDate})`).join('\n');
+            }
+        } catch (newsErr) {
+            console.error("News API Fetch Error:", newsErr);
+            newsData = "Could not fetch recent news. Rely on historical Sri Lankan data.";
         }
 
-        const medicineCounts = {};
-        recentItems.forEach(item => {
-            const medName = item.medicine ? item.medicine.name : 'Unknown';
-            if (medicineCounts[medName]) {
-                medicineCounts[medName] += item.quantity;
-            } else {
-                medicineCounts[medName] = item.quantity;
-            }
-        });
-
-        const trendDataString = Object.keys(medicineCounts)
-            .map(med => `${med}: ${medicineCounts[med]} units`)
-            .join('\n');
+        const medicines = await Medicine.findAll({ attributes: ['name', 'category', 'quantity'] });
+        const inventoryData = medicines.map(m => `${m.name} [${m.category}] (Stock: ${m.quantity})`).join(', ');
 
         const model = genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' });
 
         const prompt = `
-            You are an expert Health-Tech AI and Epidemiologist working for a pharmacy system. 
-            Analyze the following medicine consumption data from our pharmacy over the last 14 days:
+            You are an expert Health-Tech AI, Epidemiologist, and Pharmacologist working for a pharmacy in Sri Lanka.
             
-            ${trendDataString}
+            LATEST REAL-WORLD NEWS FROM SRI LANKA (Last 14 Days):
+            ${newsData}
 
-            Based on these medicines and their quantities, predict any potential seasonal disease outbreaks (e.g., flu, asthma, viral fever, dengue).
-            
+            CURRENT PHARMACY INVENTORY:
+            [ ${inventoryData || 'No medicines in stock currently'} ]
+
+            TASK:
+            1. Analyze the news to identify what diseases/outbreaks are CURRENTLY spreading in Sri Lanka.
+            2. Act as a Medical Database API: For each identified disease, determine the standard pharmacy medicines used for treatment/prevention.
+            3. Cross-reference these required medicines with our CURRENT INVENTORY.
+
             Return ONLY a valid JSON object without any markdown code blocks, backticks, or extra text.
             Use EXACTLY this JSON format:
             {
                 "riskLevel": "Low" | "Medium" | "High" | "Critical",
-                "summaryMessage": "A 2-3 sentence executive summary of the current health trend in the area.",
+                "summaryMessage": "A 2-3 sentence executive summary of the current real-world health trends in Sri Lanka based on the news.",
                 "identifiedTrends": [
                     {
-                        "disease": "Name of predicted disease",
+                        "disease": "Name of disease currently spreading",
                         "confidenceLevel": "Percentage (e.g., 85%)",
-                        "affectedMedicines": "List of medicines driving this trend",
-                        "trendDescription": "Why this is happening and what to expect."
+                        "affectedMedicines": "Medicines used to treat this",
+                        "trendDescription": "Why this is spreading based on news",
+                        "newsSource": "Quote the exact news headline from the provided news data that proves this"
                     }
                 ],
                 "stockRecommendations": [
                     {
-                        "medicineType": "Category to restock (e.g., Antihistamines, Paracetamol)",
-                        "reason": "Why we need to prepare this stock."
+                        "medicineType": "Medicine Name (must match inventory or suggest new)",
+                        "currentStock": "Current stock amount from inventory (e.g., 50 or '0')",
+                        "requiredStock": "Estimated quantity needed to face the outbreak (e.g., 200)",
+                        "reason": "Why we need this quantity based on the disease spread."
                     }
                 ]
             }
