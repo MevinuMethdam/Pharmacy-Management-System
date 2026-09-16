@@ -7,7 +7,7 @@ import {
     Sparkles, UploadCloud, AlertTriangle, Image as ImageIcon, PieChart as PieIcon
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import axios from 'axios';
+import axios from '../../api/axiosInstance';
 import { inventoryApi } from '../../api/inventoryApi';
 import Highcharts from 'highcharts';
 import Highcharts3D from 'highcharts/highcharts-3d';
@@ -20,6 +20,28 @@ try {
 } catch (e) {
     console.log("Highcharts 3D already initialized");
 }
+
+const COMMON_SPECIALIZATIONS = [
+    "General Physician (MBBS)",
+    "Cardiologist (Heart)",
+    "Dermatologist (Skin)",
+    "Endocrinologist (Diabetes & Hormones)",
+    "Gastroenterologist (Digestive)",
+    "Gynecologist / VOG (Women's Health)",
+    "Neurologist (Brain & Nerves)",
+    "Oncologist (Cancer)",
+    "Ophthalmologist / Eye Surgeon",
+    "Orthopedic Surgeon (Bones)",
+    "Pediatrician (Children)",
+    "Psychiatrist (Mental Health)",
+    "Pulmonologist (Lungs)",
+    "Rheumatologist (Joints)",
+    "Urologist (Urinary)",
+    "ENT Surgeon (Ear, Nose, Throat)",
+    "General Surgeon",
+    "Dentist / Dental Surgeon",
+    "Ayurvedic Doctor"
+];
 
 export default function PrescriptionsPage() {
     const [prescriptions, setPrescriptions] = useState([]);
@@ -52,39 +74,50 @@ export default function PrescriptionsPage() {
         status: 'Pending',
         digitalCopyUrl: '',
         notes: '',
-        items: [{ medicineId: '', quantity: 1, dosageM: '', dosageA: '', dosageN: '' }]
+        items: [{ medicineId: '', medicineName: '', quantity: 1, dosageM: '', dosageA: '', dosageN: '' }]
     });
 
     useEffect(() => {
-        fetchPrescriptions();
-        fetchPatients();
+        const controller = new AbortController();
+
+        fetchPrescriptions(controller);
+        fetchPatients(controller);
         fetchMedicines();
+
+        return () => {
+            controller.abort();
+        };
     }, []);
 
-    const fetchPrescriptions = async () => {
+    const fetchPrescriptions = async (controller = null) => {
         setLoading(true);
         try {
-            const res = await axios.get('http://localhost:5000/api/prescriptions');
+            const config = {
+                ...(controller ? { signal: controller.signal } : {})
+            };
+            const res = await axios.get('http://localhost:5000/api/prescriptions', config);
             setPrescriptions(res.data || []);
         } catch (err) {
-            console.error('Failed to load prescriptions', err);
+            if (!axios.isCancel(err)) {
+                console.error('Failed to load prescriptions', err);
+            }
         } finally {
             setLoading(false);
         }
     };
 
-    const fetchPatients = async () => {
+    const fetchPatients = async (controller = null) => {
         try {
-            let pRes = await axios.get('http://localhost:5000/api/crm/customers').catch(() => null);
-            if (!pRes || !pRes.data) {
-                pRes = await axios.get('http://localhost:5000/api/directory/patients').catch(() => null);
-            }
-            if (pRes && pRes.data) {
-                const data = Array.isArray(pRes.data) ? pRes.data : (pRes.data.content || pRes.data.patients || []);
-                setPatients(data);
-            }
+            const config = {
+                ...(controller ? { signal: controller.signal } : {})
+            };
+            const res = await axios.get('http://localhost:5000/api/crm/customers', config);
+            const data = Array.isArray(res.data) ? res.data : (res.data?.content || []);
+            setPatients(data);
         } catch (err) {
-            console.error("Patient fetch error:", err);
+            if (!axios.isCancel(err)) {
+                console.error("Patient fetch error:", err);
+            }
         }
     };
 
@@ -106,7 +139,9 @@ export default function PrescriptionsPage() {
                 setMedicines(data);
             }
         } catch (err) {
-            console.error("Axios fallback medicine fetch error:", err);
+            if (!axios.isCancel(err)) {
+                console.error("Axios fallback medicine fetch error:", err);
+            }
         }
     };
 
@@ -117,7 +152,7 @@ export default function PrescriptionsPage() {
     };
 
     const addItemRow = () => {
-        setForm({ ...form, items: [...form.items, { medicineId: '', quantity: 1, dosageM: '', dosageA: '', dosageN: '' }] });
+        setForm({ ...form, items: [...form.items, { medicineId: '', medicineName: '', quantity: 1, dosageM: '', dosageA: '', dosageN: '' }] });
     };
 
     const removeItemRow = (index) => {
@@ -131,7 +166,7 @@ export default function PrescriptionsPage() {
         setForm({
             patientId: '', doctorId: '', doctorName: '', doctorSpecialization: '', doctorContactNumber: '', doctorHospitalOrClinic: '',
             prescriptionDate: new Date().toISOString().split('T')[0], status: 'Pending', digitalCopyUrl: '', notes: '',
-            items: [{ medicineId: '', quantity: 1, dosageM: '', dosageA: '', dosageN: '' }]
+            items: [{ medicineId: '', medicineName: '', quantity: 1, dosageM: '', dosageA: '', dosageN: '' }]
         });
     };
 
@@ -149,14 +184,16 @@ export default function PrescriptionsPage() {
                     dosageM = item.dosageInstructions;
                 }
             }
+            const medDetails = medicines.find(m => String(m.id) === String(item.medicineId));
             return {
                 medicineId: item.medicineId,
+                medicineName: medDetails ? medDetails.name : (item.medicine?.name || ''),
                 quantity: item.quantity,
                 dosageM: dosageM === '-' ? '' : dosageM,
                 dosageA: dosageA === '-' ? '' : dosageA,
                 dosageN: dosageN === '-' ? '' : dosageN
             };
-        }) : [{ medicineId: '', quantity: 1, dosageM: '', dosageA: '', dosageN: '' }];
+        }) : [{ medicineId: '', medicineName: '', quantity: 1, dosageM: '', dosageA: '', dosageN: '' }];
 
         setForm({
             patientId: rx.patientId || '',
@@ -195,8 +232,20 @@ export default function PrescriptionsPage() {
 
     const handleAddSubmit = async (e) => {
         e.preventDefault();
-        if (!form.patientId || !form.doctorName) {
-            toast.error('Please select a Patient and enter Doctor Name');
+
+        if (!form.patientId || !form.doctorName || !form.doctorSpecialization) {
+            toast.error('Please select a Patient, and enter Doctor Name & Specialization');
+            return;
+        }
+
+        if (form.doctorContactNumber && !/^\d{10}$/.test(form.doctorContactNumber)) {
+            toast.error('Contact number must be exactly 10 digits');
+            return;
+        }
+
+        const hasInvalidItems = form.items.some(item => !item.medicineId);
+        if (hasInvalidItems) {
+            toast.error('Please select valid medicines from the suggestions list.');
             return;
         }
 
@@ -337,6 +386,11 @@ export default function PrescriptionsPage() {
 
     return (
         <AdminLayout>
+            <style>{`
+                .hide-scrollbar::-webkit-scrollbar { display: none; }
+                .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+            `}</style>
+
             <div className="relative font-sans z-0 min-h-[calc(100vh-6rem)] bg-slate-50/80 backdrop-blur-[24px] rounded-[32px] border border-white/60 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden p-6 mb-4">
 
                 <div className="absolute inset-0 z-[-3] opacity-[0.03] pointer-events-none mix-blend-multiply"
@@ -450,8 +504,17 @@ export default function PrescriptionsPage() {
                                             <td className="py-4 align-top pt-5 text-[13px] font-medium text-slate-600">
                                                 {rx.prescriptionDate}
                                             </td>
-                                            <td className="py-4 align-top pt-5 text-[14px] font-bold text-[#1e293b]">
-                                                {rx.patient?.name || 'Unknown Patient'}
+                                            <td className="py-4 align-top pt-5">
+                                                <div className="flex flex-col">
+                                                    <span className="text-[14px] font-bold text-[#1e293b]">
+                                                        {rx.patient?.name || 'Unknown Patient'}
+                                                    </span>
+                                                    {rx.patient?.nic && (
+                                                        <span className="text-[11px] font-bold text-slate-500 mt-0.5 uppercase tracking-wider">
+                                                            NIC: {rx.patient.nic}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className="py-4 align-top pt-5 text-[13px] font-medium text-slate-600">
                                                 {rx.doctor?.name ? `Dr. ${rx.doctor.name}` : 'Unknown Doctor'}
@@ -512,7 +575,7 @@ export default function PrescriptionsPage() {
 
             {showAIUploadModal && createPortal(
                 <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
-                    <div className="bg-white/90 backdrop-blur-2xl rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[500px] p-8 text-center relative overflow-hidden">
+                    <div className="bg-white/90 backdrop-blur-2xl rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[500px] p-8 text-center relative overflow-hidden hide-scrollbar">
                         <button onClick={() => setShowAIUploadModal(false)} className="absolute top-6 right-6 hover:bg-slate-100 p-2 rounded-full transition-colors cursor-pointer text-slate-400">
                             <X size={20}/>
                         </button>
@@ -552,7 +615,7 @@ export default function PrescriptionsPage() {
 
             {showVerifyModal && selectedAIRx && createPortal(
                 <div className="fixed inset-0 bg-black/40 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
-                    <div className="bg-white/95 backdrop-blur-2xl rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[900px] flex flex-col overflow-hidden max-h-[90vh]">
+                    <div className="bg-white/95 backdrop-blur-2xl rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[900px] flex flex-col overflow-hidden max-h-[90vh] hide-scrollbar">
 
                         <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center bg-indigo-50/50">
                             <div>
@@ -582,7 +645,7 @@ export default function PrescriptionsPage() {
                                 </div>
                             </div>
 
-                            <div className="md:w-1/2 p-6 overflow-y-auto bg-white/50">
+                            <div className="md:w-1/2 p-6 overflow-y-auto bg-white/50 hide-scrollbar">
                                 <p className="text-[11px] font-bold text-indigo-600 uppercase tracking-wider mb-4 flex items-center gap-1.5">
                                     <FileText size={14}/> AI Extracted Data
                                 </p>
@@ -644,7 +707,7 @@ export default function PrescriptionsPage() {
 
             {isAddModalOpen && createPortal(
                 <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
-                    <div className="bg-white/80 backdrop-blur-2xl p-8 rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[750px] max-h-[90vh] overflow-y-auto">
+                    <div className="bg-white/80 backdrop-blur-2xl p-8 rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[750px] max-h-[90vh] overflow-y-auto hide-scrollbar">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-[20px] font-bold text-slate-800 flex items-center gap-2.5">
                                 {editingRxId ? <Edit className="w-5 h-5 text-indigo-600"/> : <Plus className="w-5 h-5 text-indigo-600"/>}
@@ -658,12 +721,14 @@ export default function PrescriptionsPage() {
                         <form onSubmit={handleAddSubmit} className="space-y-5">
                             <div>
                                 <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                                    <User size={14} className="text-indigo-500" /> Select Patient
+                                    <User size={14} className="text-indigo-500" /> Select Patient <span className="text-rose-500">*</span>
                                 </label>
                                 <select required className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[13px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer shadow-sm backdrop-blur-sm" value={form.patientId} onChange={(e) => setForm({...form, patientId: e.target.value})}>
                                     <option value="">-- Choose Patient --</option>
                                     {patients.map(p => (
-                                        <option key={p.id} value={p.id}>{p.name || p.customerName || p.patientName || `Patient #${p.id}`}</option>
+                                        <option key={p.id} value={p.id}>
+                                            {p.name || p.customerName || p.patientName || `Patient #${p.id}`} {p.nic ? `- NIC: ${p.nic}` : ''}
+                                        </option>
                                     ))}
                                 </select>
                             </div>
@@ -674,16 +739,33 @@ export default function PrescriptionsPage() {
                                 </h3>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Doctor Name</label>
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Doctor Name <span className="text-rose-500">*</span></label>
                                         <input type="text" required placeholder="e.g. Kumara" className="w-full px-4 py-2.5 bg-white/60 border border-white/80 rounded-xl text-[12px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm" value={form.doctorName} onChange={(e) => setForm({...form, doctorName: e.target.value})} disabled={!!editingRxId} />
                                     </div>
                                     <div>
-                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Specialization</label>
-                                        <input type="text" placeholder="e.g. Cardiologist" className="w-full px-4 py-2.5 bg-white/60 border border-white/80 rounded-xl text-[12px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm" value={form.doctorSpecialization} onChange={(e) => setForm({...form, doctorSpecialization: e.target.value})} disabled={!!editingRxId} />
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Specialization <span className="text-rose-500">*</span></label>
+                                        <input
+                                            type="text"
+                                            list="specializations-list"
+                                            required
+                                            placeholder="e.g. Cardiologist"
+                                            className="w-full px-4 py-2.5 bg-white/60 border border-white/80 rounded-xl text-[12px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm"
+                                            value={form.doctorSpecialization}
+                                            onChange={(e) => setForm({...form, doctorSpecialization: e.target.value})}
+                                            disabled={!!editingRxId}
+                                        />
+                                        <datalist id="specializations-list">
+                                            {COMMON_SPECIALIZATIONS.map((spec, index) => (
+                                                <option key={index} value={spec} />
+                                            ))}
+                                        </datalist>
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Contact Number</label>
                                         <input type="text" placeholder="Optional" className="w-full px-4 py-2.5 bg-white/60 border border-white/80 rounded-xl text-[12px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm" value={form.doctorContactNumber} onChange={(e) => setForm({...form, doctorContactNumber: e.target.value})} disabled={!!editingRxId} />
+                                        {form.doctorContactNumber && !/^\d{10}$/.test(form.doctorContactNumber) && (
+                                            <p className="text-rose-500 text-[10px] font-bold mt-1.5">* Contact number must be exactly 10 digits</p>
+                                        )}
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Hospital/Clinic</label>
@@ -709,25 +791,46 @@ export default function PrescriptionsPage() {
 
                                     return (
                                         <div key={index} className={`flex flex-col md:flex-row items-center gap-3 p-3 border rounded-xl shadow-sm backdrop-blur-sm transition-colors ${isItemControlled ? 'bg-rose-100/50 border-rose-200/50' : 'bg-white/60 border-white/80'}`}>
+
                                             <div className="flex-1 w-full relative">
-                                                <select required className="w-full px-3 py-2.5 bg-white/80 border border-white/80 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm" value={item.medicineId} onChange={(e) => handleItemChange(index, 'medicineId', e.target.value)}>
-                                                    <option value="">-- Select Medicine --</option>
-                                                    {medicines.map(m => {
-                                                        const isMedControlled = Boolean(m.isControlled || m.is_controlled);
-                                                        const medName = m.name || m.medicineName || m.genericName || `Medicine #${m.id}`;
-                                                        return (
-                                                            <option key={m.id} value={m.id}>
-                                                                {isMedControlled ? '🛑 [CD] ' : ''}{medName} (Stock: {m.quantity})
-                                                            </option>
-                                                        );
-                                                    })}
-                                                </select>
+                                                <input
+                                                    type="text"
+                                                    list={`rx-medicines-list-${index}`}
+                                                    required
+                                                    placeholder="Type to search medicine..."
+                                                    className="w-full px-3 py-2.5 bg-white/80 border border-white/80 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm"
+                                                    value={item.medicineName || ''}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        const newItems = [...form.items];
+                                                        newItems[index].medicineName = val;
+
+                                                        const matchedMed = medicines.find(m => m.name.toLowerCase() === val.toLowerCase());
+                                                        newItems[index].medicineId = matchedMed ? matchedMed.id : '';
+
+                                                        setForm({ ...form, items: newItems });
+                                                    }}
+                                                />
+                                                <datalist id={`rx-medicines-list-${index}`}>
+                                                    {medicines.filter(m => Number(m.quantity) > 0).map(m => (
+                                                        <option key={m.id} value={m.name}>
+                                                            {m.dosage ? `(${m.dosage})` : ''} - Stock: {m.quantity}
+                                                        </option>
+                                                    ))}
+                                                </datalist>
+
                                                 {isItemControlled && (
                                                     <div className="absolute right-8 top-1/2 -translate-y-1/2 text-rose-500" title="NMRA Controlled Drug">
                                                         <ShieldAlert size={14} />
                                                     </div>
                                                 )}
+                                                {item.medicineName && !item.medicineId && (
+                                                    <div className="absolute right-8 top-1/2 -translate-y-1/2 text-amber-500" title="Please select a valid medicine from the list">
+                                                        <AlertTriangle size={14} />
+                                                    </div>
+                                                )}
                                             </div>
+
                                             <div className="w-20">
                                                 <input type="number" min="1" required placeholder="Qty" className="w-full px-3 py-2.5 bg-white/80 border border-white/80 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm" value={item.quantity} onChange={(e) => handleItemChange(index, 'quantity', e.target.value)} />
                                             </div>
@@ -799,7 +902,7 @@ export default function PrescriptionsPage() {
                             </button>
                         </div>
 
-                        <div className="p-8 flex-1 overflow-y-auto print:overflow-visible" id="printable-rx">
+                        <div className="p-8 flex-1 overflow-y-auto print:overflow-visible hide-scrollbar" id="printable-rx">
                             <div className="hidden print:block text-center mb-8 border-b border-slate-200 pb-6">
                                 <h1 className="text-3xl font-black text-slate-800 tracking-tight">Kegalle Rx</h1>
                                 <p className="text-sm text-slate-500 font-bold uppercase tracking-widest mt-1">Official Prescription Record</p>
