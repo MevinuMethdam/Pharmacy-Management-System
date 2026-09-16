@@ -8,7 +8,7 @@ import {
     Eye, Edit, Ban, X, User, CreditCard, Stethoscope, MessageSquare, FileCheck, TrendingUp, MoreHorizontal
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import axios from 'axios';
+import axios from '../../api/axiosInstance';
 import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
 
@@ -32,9 +32,15 @@ export default function POSPage() {
     const [updating, setUpdating] = useState(false);
 
     useEffect(() => {
-        fetchInventory();
-        fetchSalesHistory();
-        fetchPendingPrescriptions();
+        const controller = new AbortController();
+
+        fetchInventory(controller);
+        fetchSalesHistory(controller);
+        fetchPendingPrescriptions(controller);
+
+        return () => {
+            controller.abort();
+        };
     }, []);
 
     const fetchInventory = async () => {
@@ -62,13 +68,18 @@ export default function POSPage() {
         }
     };
 
-    const fetchPendingPrescriptions = async () => {
+    const fetchPendingPrescriptions = async (controller = null) => {
         try {
-            const res = await axios.get('http://localhost:5000/api/prescriptions');
+            const config = {
+                ...(controller ? { signal: controller.signal } : {})
+            };
+            const res = await axios.get('http://localhost:5000/api/prescriptions', config);
             const pending = (res.data || []).filter(rx => rx.status === 'Pending');
             setPendingPrescriptions(pending);
         } catch (err) {
-            console.error('Failed to load prescriptions for POS', err);
+            if (!axios.isCancel(err)) {
+                console.error('Failed to load prescriptions for POS', err);
+            }
         }
     };
 
@@ -192,13 +203,27 @@ export default function POSPage() {
             };
 
             await salesApi.checkout(payload);
+
+            await Promise.all(cart.map(async (item) => {
+                const med = medicines.find(m => m.id === item.medicineId);
+                if (med) {
+                    const newQuantity = med.quantity - item.quantity;
+                    // API Call to update inventory with the remaining quantity
+                    await axios.put(`http://localhost:5000/api/medicines/${med.id}`, {
+                        ...med,
+                        quantity: newQuantity
+                    });
+                }
+            }));
+
             toast.success('Bill generated & Dispensed successfully! 🎉');
 
             setCart([]);
             setCustomerName('');
             setDoctorName('');
             setSelectedPrescriptionId('');
-            fetchInventory();
+
+            await fetchInventory();
             fetchSalesHistory();
             fetchPendingPrescriptions();
 
@@ -216,9 +241,24 @@ export default function POSPage() {
                 if (salesApi.voidSale) {
                     await salesApi.voidSale(id);
                 }
-                toast.success('Sale voided successfully!');
+
+                if (sale.items && Array.isArray(sale.items)) {
+                    await Promise.all(sale.items.map(async (item) => {
+                        const medicineIdToRestore = item.medicineId || item.MedicineId || item.medicine?.id;
+                        const med = medicines.find(m => String(m.id) === String(medicineIdToRestore));
+                        if (med) {
+                            const restoredQuantity = Number(med.quantity) + Number(item.quantity || 1);
+                            await axios.put(`http://localhost:5000/api/medicines/${med.id}`, {
+                                ...med,
+                                quantity: restoredQuantity
+                            });
+                        }
+                    }));
+                }
+
+                toast.success('Sale voided and stock restored successfully!');
+                await fetchInventory();
                 fetchSalesHistory();
-                fetchInventory();
             } catch (err) {
                 toast.error(err.response?.data?.error || err.message || 'Failed to void sale');
             }
@@ -259,14 +299,32 @@ export default function POSPage() {
         }
     };
 
-    const filteredMedicines = medicines.filter(m =>
+    const availableMedicines = useMemo(() => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        return medicines.filter(m => {
+            if (Number(m.quantity) <= 0) return false;
+
+            if (!m.rackLocation || String(m.rackLocation).trim() === '') return false;
+
+            if (m.expiryDate) {
+                const expDate = new Date(m.expiryDate);
+                expDate.setHours(0, 0, 0, 0);
+                if (expDate < today) return false;
+            }
+
+            return true;
+        });
+    }, [medicines]);
+
+    const filteredMedicines = availableMedicines.filter(m =>
         m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        m.batchNumber.toLowerCase().includes(searchQuery.toLowerCase())
+        (m.batchNumber && m.batchNumber.toLowerCase().includes(searchQuery.toLowerCase()))
     );
 
     const getChartOptions = () => {
         const dailyRevenue = {};
-
 
         [...recentSales].reverse().forEach(sale => {
             if (sale.status === 'Completed') {
@@ -288,42 +346,17 @@ export default function POSPage() {
                     fontFamily: 'Inter, sans-serif'
                 }
             },
-            title: {
-                text: ''
-            },
+            title: { text: '' },
             xAxis: {
                 categories: categories.length > 0 ? categories : ['No Data'],
-                labels: {
-                    style: {
-                        color: '#64748b',
-                        fontWeight: '600',
-                        fontSize: '11px'
-                    }
-                },
+                labels: { style: { color: '#64748b', fontWeight: '600', fontSize: '11px' } },
                 lineWidth: 0,
                 tickWidth: 0,
-                crosshair: {
-                    color: '#e2e8f0',
-                    dashStyle: 'Dash'
-                }
+                crosshair: { color: '#e2e8f0', dashStyle: 'Dash' }
             },
             yAxis: {
-                title: {
-                    text: 'REVENUE (LKR)',
-                    align: 'high',
-                    style: {
-                        color: '#94a3b8',
-                        fontSize: '10px',
-                        fontWeight: '700',
-                        letterSpacing: '1px'
-                    }
-                },
-                labels: {
-                    style: {
-                        color: '#94a3b8',
-                        fontWeight: '500'
-                    }
-                },
+                title: { text: 'REVENUE (LKR)', align: 'high', style: { color: '#94a3b8', fontSize: '10px', fontWeight: '700', letterSpacing: '1px' } },
+                labels: { style: { color: '#94a3b8', fontWeight: '500' } },
                 gridLineColor: 'rgba(255,255,255,0.2)',
                 gridLineDashStyle: 'Dash'
             },
@@ -332,56 +365,19 @@ export default function POSPage() {
                 backgroundColor: 'rgba(255,255,255,0.8)',
                 borderColor: 'rgba(255,255,255,0.4)',
                 borderRadius: 16,
-                shadow: {
-                    color: 'rgba(0, 0, 0, 0.08)',
-                    offsetX: 0,
-                    offsetY: 8,
-                    width: 20
-                },
-                style: {
-                    color: '#1e293b',
-                    fontWeight: '600',
-                    fontSize: '13px'
-                }
+                shadow: { color: 'rgba(0, 0, 0, 0.08)', offsetX: 0, offsetY: 8, width: 20 },
+                style: { color: '#1e293b', fontWeight: '600', fontSize: '13px' }
             },
             plotOptions: {
                 areaspline: {
-                    fillOpacity: 0.5,
-                    lineWidth: 3,
-                    connectEnds: true,
-                    enableMouseTracking: true,
-                    marker: {
-                        enabled: false,
-                        states: {
-                            hover: {
-                                enabled: true,
-                                radius: 5,
-                                fillColor: '#ffffff',
-                                lineColor: '#8b5cf6',
-                                lineWidth: 2
-                            }
-                        }
-                    },
+                    fillOpacity: 0.5, lineWidth: 3, connectEnds: true, enableMouseTracking: true,
+                    marker: { enabled: false, states: { hover: { enabled: true, radius: 5, fillColor: '#ffffff', lineColor: '#8b5cf6', lineWidth: 2 } } },
                     color: '#8b5cf6',
-                    fillColor: {
-                        linearGradient: { x1: 0, x2: 0, y1: 0, y2: 1 },
-                        stops: [
-                            [0, 'rgba(139, 92, 246, 0.4)'],
-                            [1, 'rgba(139, 92, 246, 0.0)']
-                        ]
-                    }
+                    fillColor: { linearGradient: { x1: 0, x2: 0, y1: 0, y2: 1 }, stops: [ [0, 'rgba(139, 92, 246, 0.4)'], [1, 'rgba(139, 92, 246, 0.0)'] ] }
                 }
             },
-            legend: {
-                enabled: false
-            },
-            credits: {
-                enabled: false
-            },
-            series: [{
-                name: 'Daily Revenue',
-                data: data.length > 0 ? data : [0]
-            }]
+            legend: { enabled: false }, credits: { enabled: false },
+            series: [{ name: 'Daily Revenue', data: data.length > 0 ? data : [0] }]
         };
     };
 
@@ -430,7 +426,7 @@ export default function POSPage() {
                         <div className="lg:col-span-7 flex flex-col gap-4 bg-white/30 backdrop-blur-2xl p-6 rounded-[32px] border border-white/50 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden h-full">
                             <div className="flex items-center justify-between px-2">
                                 <h2 className="text-[18px] font-bold text-slate-800">Pharmacy Catalog</h2>
-                                <span className="text-xs font-semibold bg-white/50 text-indigo-700 px-3 py-1 rounded-full border border-white/60 shadow-sm backdrop-blur-sm">{medicines.length} Items</span>
+                                <span className="text-xs font-semibold bg-white/50 text-indigo-700 px-3 py-1 rounded-full border border-white/60 shadow-sm backdrop-blur-sm">{filteredMedicines.length} Items</span>
                             </div>
 
                             <div className="relative">
@@ -444,14 +440,14 @@ export default function POSPage() {
                                 />
                             </div>
 
-                            <div className="flex-1 overflow-y-auto min-h-[200px] grid grid-cols-1 md:grid-cols-2 gap-4 pr-1">
+                            <div className="flex-1 overflow-y-auto min-h-[200px] grid grid-cols-1 md:grid-cols-2 gap-4 pr-1 content-start auto-rows-max">
                                 {filteredMedicines.map(med => {
                                     const isControlled = Boolean(med.isControlled || med.is_controlled);
                                     return (
                                         <div
                                             key={med.id}
                                             onClick={() => addToCart(med)}
-                                            className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between backdrop-blur-sm shadow-sm hover:-translate-y-0.5 ${isControlled ? 'bg-rose-100/50 border-rose-200/50 hover:bg-rose-100/80' : 'bg-white/40 border-white/50 hover:bg-white/60'}`}
+                                            className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between backdrop-blur-sm shadow-sm hover:-translate-y-0.5 min-h-[115px] h-fit ${isControlled ? 'bg-rose-100/50 border-rose-200/50 hover:bg-rose-100/80' : 'bg-white/40 border-white/50 hover:bg-white/60'}`}
                                         >
                                             <div>
                                                 <div className="flex justify-between items-start">
@@ -491,7 +487,7 @@ export default function POSPage() {
                                         <option value="">-- Choose Prescription (Optional) --</option>
                                         {pendingPrescriptions.map(rx => (
                                             <option key={rx.id} value={rx.id}>
-                                                RX-{String(rx.id).padStart(4, '0')} - {rx.patient?.name || 'Patient'} (Dr. {rx.doctor?.name || 'Doctor'})
+                                                RX-{String(rx.id).padStart(4, '0')} - {rx.patient?.name || 'Unknown Patient'} (PID: {rx.patientId || rx.patient?.id || 'N/A'}) - Dr. {rx.doctor?.name || 'Doctor'}
                                             </option>
                                         ))}
                                     </select>
