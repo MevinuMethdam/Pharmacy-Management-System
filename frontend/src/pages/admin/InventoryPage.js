@@ -175,7 +175,7 @@ export default function InventoryPage() {
         quantity: '', costPrice: '', sellingPrice: '', expiryDate: '', minStockLevel: 10, supplierId: '', isControlled: false
     });
 
-    const checkLowStock = (meds) => {
+    const checkLowStock = (meds, sups = suppliers, map = medSupplierMap) => {
         const configuredMeds = meds.filter(m => m.rackLocation && String(m.rackLocation).trim() !== '' && Number(m.quantity) > 0);
         const lowStockMeds = configuredMeds.filter(m => m.quantity <= Number(m.minStockLevel || 10));
 
@@ -203,7 +203,7 @@ export default function InventoryPage() {
                                     ))}
                                 </div>
                                 <p className="mt-3 text-[10px] text-emerald-600 font-bold flex items-center gap-1">
-                                    <CheckCircle size={12}/> Email Alert Sent to Admin
+                                    <CheckCircle size={12}/> Email Alert Sent to Admin & Supplier
                                 </p>
                             </div>
                         </div>
@@ -216,7 +216,13 @@ export default function InventoryPage() {
                 </div>
             ), { duration: 12000, position: 'bottom-right' });
 
-            axios.post('http://localhost:5000/api/notifications/trigger-low-stock-emails', { medicines: lowStockMeds })
+            const medsWithSuppliers = lowStockMeds.map(m => {
+                const sId = m.supplierId || map[String(m.id)] || map[String(m.name).toLowerCase()];
+                const supplier = sups.find(s => String(s.id) === String(sId));
+                return { ...m, supplier };
+            });
+
+            axios.post('http://localhost:5000/api/notifications/trigger-low-stock-emails', { medicines: medsWithSuppliers })
                 .catch(err => {
                     if (!axios.isCancel(err)) {
                         console.log('Low Stock Email trigger request failed.', err);
@@ -225,24 +231,28 @@ export default function InventoryPage() {
         }
     };
 
-    const fetchData = async () => {
+    const fetchData = async (signal) => {
         setLoading(true);
         try {
-            const medRes = await axios.get('http://localhost:5000/api/medicines').catch(err => {
+            const config = signal ? { signal } : {};
+
+            const medRes = await axios.get('http://localhost:5000/api/medicines', config).catch(err => {
                 if (!axios.isCancel(err)) {
                     console.error("Medicine Error:", err);
                     if (err.response?.status === 401) toast.error("Session expired! Please Logout and Login again.");
                 }
                 return { data: [] };
             });
-            const supRes = await axios.get('http://localhost:5000/api/suppliers').catch(err => {
+            const supRes = await axios.get('http://localhost:5000/api/suppliers', config).catch(err => {
                 if (!axios.isCancel(err)) console.error("Supplier Error:", err);
                 return { data: [] };
             });
-            const purRes = await axios.get('http://localhost:5000/api/purchases').catch(err => {
+            const purRes = await axios.get('http://localhost:5000/api/purchases', config).catch(err => {
                 if (!axios.isCancel(err)) console.error("Purchase Error:", err);
                 return { data: [] };
             });
+
+            if (signal && signal.aborted) return;
 
             const loadedMedicines = Array.isArray(medRes?.data) ? medRes.data : [];
             const loadedSuppliers = Array.isArray(supRes?.data) ? supRes.data : [];
@@ -279,7 +289,7 @@ export default function InventoryPage() {
             setMedicines(loadedMedicines);
             setSuppliers(loadedSuppliers);
 
-            checkLowStock(loadedMedicines);
+            checkLowStock(loadedMedicines, loadedSuppliers, mapping);
 
         } catch (err) {
             if (!axios.isCancel(err)) {
@@ -287,12 +297,19 @@ export default function InventoryPage() {
                 console.error(err);
             }
         } finally {
-            setLoading(false);
+            if (!signal || !signal.aborted) {
+                setLoading(false);
+            }
         }
     };
 
     useEffect(() => {
-        fetchData();
+        const controller = new AbortController();
+        fetchData(controller.signal);
+
+        return () => {
+            controller.abort();
+        };
     }, []);
 
     const highchartsOptions = useMemo(() => {
@@ -456,7 +473,19 @@ export default function InventoryPage() {
                 actionType: actionType
             });
 
-            toast.success(actionType === 'return' ? 'Stock Returned & Debit Note Created! 💸' : 'Stock Disposed & Loss Recorded! 🗑️');
+            if (actionType === 'return') {
+                const sId = actionModal.medicine.supplierId || medSupplierMap[actionModal.medicine.id] || medSupplierMap[actionModal.medicine.name?.toLowerCase()];
+                const supplier = suppliers.find(s => String(s.id) === String(sId));
+
+                await axios.post('http://localhost:5000/api/notifications/trigger-return-emails', {
+                    medicine: actionModal.medicine,
+                    supplier: supplier || null
+                }).catch(e => {
+                    if (!axios.isCancel(e)) console.log("Return email notification failed", e);
+                });
+            }
+
+            toast.success(actionType === 'return' ? 'Stock Returned & Debit Note Sent to Supplier! 💸' : 'Stock Disposed & Loss Recorded! 🗑️');
             setActionModal({ isOpen: false, medicine: null });
 
             fetchData();
@@ -505,6 +534,9 @@ export default function InventoryPage() {
             <style>{`
                 @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
                 .animate-pulse-soft { animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+                /* 🟢 Hide Modal Scrollbar completely but keep it scrollable */
+                .hide-scrollbar::-webkit-scrollbar { display: none; }
+                .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
             `}</style>
 
             <div className="relative font-sans z-0 min-h-[calc(100vh-6rem)] bg-slate-50/80 backdrop-blur-[24px] rounded-[32px] border border-white/60 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden p-6 mb-4">
@@ -569,13 +601,13 @@ export default function InventoryPage() {
                             <table className="w-full text-left border-collapse table-fixed">
                                 <thead>
                                 <tr>
-                                    <th className="w-[20%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Medicine<br/>Name</th>
-                                    <th className="w-[12%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Category</th>
-                                    <th className="w-[12%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Batch #</th>
-                                    <th className="w-[11%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Stock<br/>Qty</th>
+                                    <th className="w-[18%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight pr-4">Medicine Name</th>
+                                    <th className="w-[15%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight pr-4">Category</th>
+                                    <th className="w-[14%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Batch #</th>
+                                    <th className="w-[10%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Stock<br/>Qty</th>
                                     <th className="w-[12%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Unit Price<br/>(LKR)</th>
                                     <th className="w-[12%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Expiry<br/>Date</th>
-                                    <th className="w-[10%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight text-center">Expiry<br/>Alerts</th>
+                                    <th className="w-[8%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight text-center">Alerts</th>
                                     <th className="w-[11%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight text-right pr-4">Actions</th>
                                 </tr>
                                 </thead>
@@ -597,24 +629,24 @@ export default function InventoryPage() {
                                         let alertUI = <span className="text-[11px] font-medium text-slate-400">-</span>;
 
                                         if (diffDays <= 180) {
-                                            let colorConfig = { bg: '', text: '', border: '' };
+                                            let colorConfig = { bg: '', iconBg: '', iconText: '', text: '' };
                                             let daysText = `${diffDays} Days`;
 
                                             if (diffDays <= 0) {
-                                                colorConfig = { bg: 'bg-slate-200/80', text: 'text-slate-800', border: 'border-slate-300' };
-                                                daysText = 'Expired ☠️';
+                                                colorConfig = { bg: 'bg-rose-50/50', iconBg: 'bg-rose-100', iconText: 'text-rose-600', text: 'text-rose-600' };
+                                                daysText = 'Expired';
                                             } else if (diffDays <= 60) {
-                                                colorConfig = { bg: 'bg-rose-100/80', text: 'text-rose-600', border: 'border-rose-200' };
+                                                colorConfig = { bg: 'bg-rose-50/50', iconBg: 'bg-rose-100', iconText: 'text-rose-500', text: 'text-rose-500' };
                                             } else if (diffDays <= 90) {
-                                                colorConfig = { bg: 'bg-orange-100/80', text: 'text-orange-600', border: 'border-orange-200' };
+                                                colorConfig = { bg: 'bg-orange-50/50', iconBg: 'bg-orange-100', iconText: 'text-orange-500', text: 'text-orange-500' };
                                             } else if (diffDays <= 180) {
-                                                colorConfig = { bg: 'bg-yellow-100/80', text: 'text-yellow-600', border: 'border-yellow-200' };
+                                                colorConfig = { bg: 'bg-amber-50/50', iconBg: 'bg-amber-100', iconText: 'text-amber-500', text: 'text-amber-500' };
                                             }
 
                                             alertUI = (
-                                                <div className="flex flex-col items-center justify-center group" title={`Expires in ${diffDays} days`}>
-                                                    <div className={`p-1.5 ${colorConfig.bg} ${colorConfig.text} rounded-lg shadow-sm border ${colorConfig.border} ${diffDays <= 60 && diffDays > 0 ? 'animate-pulse-soft' : ''} transition-colors`}>
-                                                        <AlertTriangle size={18} strokeWidth={2.5} />
+                                                <div className="flex flex-col items-center justify-center group" title={diffDays <= 0 ? 'Expired' : `Expires in ${diffDays} days`}>
+                                                    <div className={`p-1.5 rounded-[10px] ${colorConfig.iconBg} ${colorConfig.iconText} ${diffDays <= 60 && diffDays > 0 ? 'animate-pulse-soft' : ''}`}>
+                                                        <AlertTriangle size={16} strokeWidth={2.5} />
                                                     </div>
                                                     <span className={`text-[10px] font-bold ${colorConfig.text} mt-1 whitespace-nowrap`}>
                                                         {daysText}
@@ -625,28 +657,35 @@ export default function InventoryPage() {
 
                                         return (
                                             <tr key={med.id} className={`group transition-colors border-b border-white/20 last:border-0 ${med.isControlled ? 'bg-rose-100/30 backdrop-blur-sm' : 'hover:bg-white/20'}`}>
-                                                <td className="py-4 align-top pt-5">
-                                                    <div className="flex items-center gap-2">
-                                                        <p className={`font-bold text-[14px] ${med.isControlled ? 'text-rose-700 font-black' : 'text-[#1e293b]'}`}>
-                                                            {med.name} {med.dosage && <span className="text-[11px] font-semibold text-slate-400">({med.dosage})</span>}
+                                                <td className="py-4 align-top pt-5 pr-4">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <p className={`font-bold text-[14px] leading-tight ${med.isControlled ? 'text-rose-700 font-black' : 'text-[#1e293b]'}`}>
+                                                            {med.name} {med.dosage && <span className="text-[11px] font-semibold text-slate-400 whitespace-nowrap">({med.dosage})</span>}
                                                         </p>
                                                         {med.isControlled && (
-                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-100/80 text-rose-700 rounded-md text-[10px] font-bold border border-rose-200/50 backdrop-blur-sm" title="NMRA Controlled Drug"><ShieldAlert size={12} /> Controlled</span>
+                                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-rose-100/80 text-rose-700 rounded-md text-[9px] font-bold border border-rose-200/50 backdrop-blur-sm whitespace-nowrap" title="NMRA Controlled Drug"><ShieldAlert size={10} /></span>
                                                         )}
                                                     </div>
-                                                    <p className={`text-[12px] mt-0.5 ${med.isControlled ? 'text-rose-500 font-medium' : 'text-slate-500 font-medium'}`}>
-                                                        {med.genericName || med.supplier?.companyName || 'N/A'}
-                                                        {med.rackLocation && <span className="ml-2 inline-flex items-center gap-0.5 text-sky-600 font-semibold"><MapPin size={10}/> Rack: {med.rackLocation}</span>}
+                                                    <p className={`text-[12px] mt-1 flex flex-wrap gap-y-1 ${med.isControlled ? 'text-rose-500 font-medium' : 'text-slate-500 font-medium'}`}>
+                                                        <span className="mr-2 truncate max-w-[120px] inline-block align-bottom" title={med.genericName || med.supplier?.companyName || 'N/A'}>
+                                                            {med.genericName || med.supplier?.companyName || 'N/A'}
+                                                        </span>
+                                                        {med.rackLocation && <span className="inline-flex items-center gap-0.5 text-sky-600 font-semibold whitespace-nowrap"><MapPin size={10}/> {med.rackLocation}</span>}
                                                     </p>
                                                 </td>
-                                                <td className="py-4 align-top pt-5">
-                                                    <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${med.isControlled ? 'bg-rose-100/80 text-rose-700 border border-rose-200/50 backdrop-blur-sm' : 'bg-white/50 text-sky-600 border border-white/60 shadow-sm backdrop-blur-sm'}`}>{med.category}</span>
+                                                <td className="py-4 align-top pt-5 pr-4">
+                                                    <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${med.isControlled ? 'bg-rose-100/80 text-rose-700 border border-rose-200/50 backdrop-blur-sm' : 'bg-white/50 text-sky-600 border border-white/60 shadow-sm backdrop-blur-sm truncate block max-w-max'}`} title={med.category}>{med.category}</span>
                                                 </td>
                                                 <td className={`py-4 align-top pt-5 text-[13px] font-mono font-bold ${med.isControlled ? 'text-rose-700' : 'text-slate-700'}`}>{med.batchNumber}</td>
                                                 <td className="py-4 align-top pt-5 text-[13px] font-bold">
-                                                    <span className={med.quantity <= Number(med.minStockLevel) ? 'text-rose-600 bg-rose-100/80 backdrop-blur-sm px-2.5 py-1 rounded-lg border border-rose-200/50' : med.isControlled ? 'text-rose-700 font-black' : 'text-slate-700'}>
-                                                        {med.quantity} {med.quantity <= Number(med.minStockLevel) && '⚠️ Low'}
-                                                    </span>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className={med.quantity <= Number(med.minStockLevel) ? 'text-rose-600 font-black' : med.isControlled ? 'text-rose-700 font-black' : 'text-slate-700'}>
+                                                            {med.quantity}
+                                                        </span>
+                                                        {med.quantity <= Number(med.minStockLevel) && (
+                                                            <AlertTriangle size={14} strokeWidth={3} className="text-rose-500 animate-pulse-soft" title="Low Stock!" />
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className={`py-4 align-top pt-5 text-[14px] font-bold ${med.isControlled ? 'text-rose-700' : 'text-[#1e293b]'}`}>LKR {Number(med.sellingPrice).toFixed(2)}</td>
                                                 <td className={`py-4 align-top pt-5 text-[13px] font-medium ${med.isControlled ? 'text-rose-600 font-bold' : 'text-slate-600'}`}>{new Date(med.expiryDate).toLocaleDateString()}</td>
