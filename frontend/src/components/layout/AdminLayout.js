@@ -19,24 +19,24 @@ import {
     User,
     Radar,
     Receipt,
-    Navigation
+    Navigation,
+    Archive
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import api from '../../api/axiosInstance';
 import io from 'socket.io-client';
 
 import profileImg from '../../assets/profile.png';
-
-const socket = io('http://localhost:5000');
+import logoImage from '../../assets/logo.png';
 
 const ADMIN_LINKS = [
     { to: '/admin', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/admin/suppliers', label: 'Suppliers', icon: Truck },
     { to: '/admin/purchases', label: 'Purchases & GRN', icon: Receipt },
     { to: '/admin/inventory', label: 'Inventory', icon: Package },
-
+    { to: '/admin/returns', label: 'Returns & Disposals', icon: Archive },
     { to: '/admin/rack-locator', label: 'Rack Locator', icon: Navigation },
-
     { to: '/admin/crm', label: 'CRM & Loyalty', icon: Star },
     { to: '/admin/prescriptions', label: 'Prescriptions', icon: FileText },
     { to: '/pos', label: 'POS Billing', icon: ShoppingCart },
@@ -67,35 +67,68 @@ export default function AdminLayout({ children }) {
         sessionStorage.setItem('sidebarScrollPos', e.target.scrollTop);
     };
 
-    const fetchNotifications = async () => {
-        try {
-            const res = await axios.get('http://localhost:5000/api/notifications/unread');
-            setNotifications(res.data);
-            setUnreadCount(res.data.length);
-        } catch (error) {
-            console.error("Failed to load notifications");
-        }
-    };
-
     useEffect(() => {
+        let isMounted = true;
+        const controller = new AbortController();
+
+        const socket = io('http://localhost:5000', {
+            transports: ['websocket'],
+            reconnection: true
+        });
+
+        const fetchNotifications = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                const config = {
+                    ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+                    signal: controller.signal
+                };
+
+                const res = await api.get('http://localhost:5000/api/notifications/unread', config);
+
+                if (isMounted) {
+                    setNotifications(res.data);
+                    setUnreadCount(res.data.length);
+                }
+            } catch (error) {
+                if (axios.isCancel(error)) {
+                    console.log('Notification fetch canceled to free browser connection pool.');
+                } else {
+                    console.error("Failed to load notifications");
+                }
+            }
+        };
+
         fetchNotifications();
 
-        const interval = setInterval(fetchNotifications, 300000);
+        const interval = setInterval(() => {
+            if (isMounted && !controller.signal.aborted) {
+                fetchNotifications();
+            }
+        }, 300000);
 
         socket.on('receive_notification', (data) => {
-            setNotifications((prev) => [data, ...prev]);
-            setUnreadCount((prev) => prev + 1);
+            if (isMounted) {
+                setNotifications((prev) => [data, ...prev]);
+                setUnreadCount((prev) => prev + 1);
+            }
         });
 
         return () => {
+            isMounted = false;
+            controller.abort();
             clearInterval(interval);
             socket.off('receive_notification');
+            socket.disconnect();
         };
     }, []);
 
     const handleNotificationClick = async (id) => {
         try {
-            await axios.put(`http://localhost:5000/api/notifications/${id}/read`);
+            const token = localStorage.getItem('token');
+            const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+
+            await api.put(`http://localhost:5000/api/notifications/${id}/read`, {}, config);
 
             setNotifications(prev => prev.filter(n => n.id !== id));
             setUnreadCount(prev => Math.max(0, prev - 1));
@@ -128,6 +161,11 @@ export default function AdminLayout({ children }) {
 
     return (
         <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
+            <style>{`
+                .hover-scroll::-webkit-scrollbar { width: 6px; background-color: transparent; }
+                .hover-scroll::-webkit-scrollbar-thumb { background-color: transparent; border-radius: 10px; }
+                .hover-scroll:hover::-webkit-scrollbar-thumb { background-color: #cbd5e1; }
+            `}</style>
 
             <aside
                 className={`relative my-4 ml-4 h-[calc(100vh-32px)] bg-white rounded-[32px] border border-slate-200 transition-all duration-300 ease-in-out flex flex-col flex-shrink-0 z-40 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] ${
@@ -144,26 +182,28 @@ export default function AdminLayout({ children }) {
                 <div className={`flex items-center ${isCollapsed ? 'justify-center px-0' : 'px-8'} mb-8 mt-8 transition-all duration-300`}>
 
                     {!isCollapsed && (
-                        <div className="overflow-hidden whitespace-nowrap transition-opacity duration-300 w-full">
-                            <div className="flex items-baseline gap-1.5 pb-0.5">
-                                <span className="text-[22px] font-bold text-slate-700 tracking-tight">Kegalle</span>
-                                <span className="text-[22px] font-black bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent tracking-tight pr-1 pb-1">Ph4Life</span>
+                        <div className="flex items-center gap-2.5 overflow-hidden whitespace-nowrap transition-opacity duration-300 w-full">
+                            <img src={logoImage} alt="Kegalle Ph4Life Logo" className="w-9 h-9 object-contain flex-shrink-0 drop-shadow-sm" />
+
+                            <div className="flex flex-col">
+                                <div className="flex items-baseline gap-1.5 pb-0.5">
+                                    <span className="text-[22px] font-bold text-slate-700 tracking-tight">Kegalle</span>
+                                    <span className="text-[22px] font-black bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent tracking-tight pr-1 pb-1">Ph4Life</span>
+                                </div>
+                                <p className="text-[10px] font-bold text-sky-500 uppercase tracking-[0.15em] ml-0.5">Pharmacy System</p>
                             </div>
-                            <p className="text-[10px] font-bold text-sky-500 uppercase tracking-[0.15em] ml-0.5">Pharmacy System</p>
                         </div>
                     )}
 
                     {isCollapsed && (
-                        <span className="font-black text-[22px] bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent pb-1 pr-1">
-                            Ph
-                        </span>
+                        <img src={logoImage} alt="Kegalle Ph4Life Logo" className="w-8 h-8 object-contain drop-shadow-sm" />
                     )}
                 </div>
 
                 <nav
                     ref={navRef}
                     onScroll={handleNavScroll}
-                    className="space-y-1.5 px-4 flex-1 overflow-y-auto hide-scrollbar"
+                    className="space-y-1.5 px-4 flex-1 overflow-y-auto hover-scroll"
                 >
                     {ADMIN_LINKS.map(({ to, label, icon: Icon }) => (
                         <NavLink
@@ -232,7 +272,7 @@ export default function AdminLayout({ children }) {
                                             <span className="text-[10px] font-bold bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full shadow-sm">{unreadCount} New</span>
                                         )}
                                     </div>
-                                    <div className="max-h-[300px] overflow-y-auto hide-scrollbar">
+                                    <div className="max-h-[300px] overflow-y-auto hover-scroll">
                                         {notifications.length === 0 ? (
                                             <div className="p-6 text-center text-sm text-slate-400 font-medium">No new notifications</div>
                                         ) : (
@@ -285,7 +325,7 @@ export default function AdminLayout({ children }) {
             <aside
                 className={`fixed top-4 right-4 h-[calc(100vh-32px)] w-80 bg-white rounded-[32px] border border-slate-200 shadow-[0_8px_32px_0_rgba(31,38,135,0.1)] z-50 transform transition-transform duration-300 ease-in-out ${isProfileOpen ? 'translate-x-0' : 'translate-x-[120%]'}`}
             >
-                <div className="p-6 h-full flex flex-col overflow-y-auto hide-scrollbar">
+                <div className="p-6 h-full flex flex-col overflow-y-auto hover-scroll">
 
                     <div className="flex justify-between items-center mb-8">
                         <button onClick={() => setIsProfileOpen(false)} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors cursor-pointer">
