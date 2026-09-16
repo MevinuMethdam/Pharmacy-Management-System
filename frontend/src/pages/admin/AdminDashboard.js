@@ -17,6 +17,7 @@ import Spinner from '../../components/ui/Spinner';
 import AdminLayout from '../../components/layout/AdminLayout';
 import io from 'socket.io-client';
 import { AuthContext } from '../../context/AuthContext';
+import axios from '../../api/axiosInstance';
 
 import welcomeImage from '../../assets/illustration_converted.png';
 
