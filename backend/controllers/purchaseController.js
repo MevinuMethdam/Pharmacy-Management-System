@@ -121,7 +121,6 @@ exports.createPurchase = async (req, res) => {
                 await transporter.sendMail(mailOptions);
 
                 await PurchaseInvoice.update({ reminderSent: true }, { where: { id: invoice.id } });
-                console.log(`Instant Alert Sent for Invoice: ${invoiceNumber}`);
             }
 
         } catch (postError) {
@@ -131,10 +130,6 @@ exports.createPurchase = async (req, res) => {
     } catch (error) {
         await t.rollback();
         console.error("Error creating purchase GRN:", error);
-
-        if (error.name === 'SequelizeUniqueConstraintError') {
-            return res.status(400).json({ error: `Invoice Number '${req.body.invoiceNumber}' already exists! Please use a unique Invoice Number.` });
-        }
 
         res.status(500).json({ error: 'Failed to process purchase invoice' });
     }
