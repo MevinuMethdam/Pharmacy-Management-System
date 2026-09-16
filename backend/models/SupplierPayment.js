@@ -10,7 +10,7 @@ const SupplierPayment = sequelize.define('SupplierPayment', {
     paymentNumber: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: true
+        unique: 'idx_unique_supplier_payment_number'
     },
     supplierId: {
         type: DataTypes.INTEGER,
@@ -49,6 +49,18 @@ const SupplierPayment = sequelize.define('SupplierPayment', {
         allowNull: true
     },
     notes: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    receiptImage: {
+        type: DataTypes.TEXT('long'),
+        allowNull: true
+    },
+    status: {
+        type: DataTypes.STRING,
+        defaultValue: 'Pending'
+    },
+    rejectionReason: {
         type: DataTypes.TEXT,
         allowNull: true
     }
