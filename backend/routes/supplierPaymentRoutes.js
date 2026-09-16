@@ -4,5 +4,7 @@ const supplierPaymentController = require('../controllers/supplierPaymentControl
 
 router.post('/', supplierPaymentController.createPayment);
 router.get('/', supplierPaymentController.getAllPayments);
+router.put('/:id/accept', supplierPaymentController.acceptPayment);
+router.put('/:id/reject', supplierPaymentController.rejectPayment);
 
 module.exports = router;
