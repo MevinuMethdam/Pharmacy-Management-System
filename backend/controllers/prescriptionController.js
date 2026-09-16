@@ -109,7 +109,6 @@ exports.scanPrescriptionAI = async (req, res) => {
             return res.status(400).json({ message: 'Please upload a prescription image.' });
         }
 
-        // 1. ෆොටෝ එක Base64 විදිහට හදාගැනීම
         const imagePart = {
             inlineData: {
                 data: req.file.buffer.toString('base64'),
