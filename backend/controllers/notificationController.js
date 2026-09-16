@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
 const Notification = require('../models/Notification');
+const Supplier = require('../models/Supplier');
 
 exports.getUnreadNotifications = async (req, res) => {
     try {
@@ -113,6 +114,67 @@ exports.triggerExpiryEmails = async (req, res) => {
                             };
                             await transporter.sendMail(mailOptions);
                             emailsSentCount++;
+
+                            let supplier = m.supplier;
+                            if (!supplier && m.supplierId) {
+                                supplier = await Supplier.findByPk(m.supplierId);
+                            }
+
+                            if (supplier) {
+                                const returnWindowMonths = supplier.returnWindow !== undefined ? Number(supplier.returnWindow) : 3;
+                                const returnWindowDays = returnWindowMonths * 30;
+                                const isWithinReturnWindow = diffDays <= returnWindowDays;
+
+                                let supplierHtmlMsg = `<p>One of the medicines you supplied is approaching its expiry date.</p>`;
+
+                                if (isWithinReturnWindow && diffDays >= 0) {
+                                    supplierHtmlMsg += `<div style="padding: 10px; background-color: #fff7ed; border-left: 4px solid #ea580c; margin: 15px 0;">
+                                        <strong>⚠️ Return Window Alert:</strong> This medicine is now within your agreed return window of <b>${returnWindowMonths} months</b>. The pharmacy may initiate a return/debit note soon.
+                                    </div>`;
+                                } else if (diffDays < 0) {
+                                    supplierHtmlMsg += `<div style="padding: 10px; background-color: #fef2f2; border-left: 4px solid #e11d48; margin: 15px 0;">
+                                        <strong>☠️ Expired:</strong> This medicine has officially expired.
+                                    </div>`;
+                                }
+
+                                if (io) {
+                                    io.emit('receive_notification', {
+                                        id: `sup_exp_${Date.now()}_${m.id}`,
+                                        title: `Expiry Alert: ${m.name}`,
+                                        message: `Your product ${m.name} (Batch: ${m.batchNumber}) is expiring in ${diffDays} days. ${isWithinReturnWindow ? 'It is within your Return Window.' : ''}`,
+                                        type: 'warning',
+                                        target: 'supplier',
+                                        supplierId: supplier.id,
+                                        time: new Date()
+                                    });
+                                }
+
+                                const targetEmail = supplier.email || supplier.supplierEmail;
+                                if (targetEmail) {
+                                    const supplierMailOptions = {
+                                        from: process.env.EMAIL_USER,
+                                        to: targetEmail,
+                                        subject: `Action Required: Stock Expiry Notice for ${m.name}`,
+                                        html: `
+                                            <div style="font-family: Arial, sans-serif; max-w: 600px; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+                                                <h2 style="color: #ea580c;">Stock Expiry Notice (Kegalle Ph4Life)</h2>
+                                                <p>Dear ${supplier.companyName},</p>
+                                                ${supplierHtmlMsg}
+                                                <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+                                                    <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Medicine:</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${m.name}</td></tr>
+                                                    <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Batch No:</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${m.batchNumber || 'N/A'}</td></tr>
+                                                    <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Stock Left:</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>${m.quantity}</b></td></tr>
+                                                    <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Expiry Date:</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd; color: #e11d48;"><b>${m.expiryDate}</b></td></tr>
+                                                    <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Days to Expiry:</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd; font-size: 16px;"><b>${diffDays} Days</b></td></tr>
+                                                </table>
+                                                <p style="margin-top: 20px; color: #64748b; font-size: 12px;">Please log in to your Supplier Portal for more details.</p>
+                                            </div>
+                                        `
+                                    };
+                                    await transporter.sendMail(supplierMailOptions);
+                                    emailsSentCount++;
+                                }
+                            }
                         }
                     }
                 }
