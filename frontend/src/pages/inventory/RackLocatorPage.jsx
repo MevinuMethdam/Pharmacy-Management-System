@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { Search, MapPin, Package, Box, Navigation, Layers, X, ChevronLeft, ChevronRight } from 'lucide-react';
-import axios from 'axios';
+import axios from '../../api/axiosInstance';
 import toast from 'react-hot-toast';
 
 import rackImg1 from '../../assets/pharmacy_rack.png';
@@ -18,6 +18,11 @@ import pic5 from '../../assets/Pic5.png';
 
 const RACK_IMAGES = [rackImg1, rackImg2, rackImg3, rackImg4, rackImg5];
 
+const BIN_CAPACITY = 100;
+const MAX_RACKS = 20;
+const MAX_SHELVES = 10;
+const MAX_BINS = 10;
+
 const getCategoryImage = (category) => {
     const cat = (category || '').toLowerCase();
     if (cat.includes('cap')) return pic2;
@@ -29,24 +34,64 @@ const getCategoryImage = (category) => {
 
 const parseLocation = (loc) => {
     if (!loc) return null;
-    const match = loc.match(/^([A-Z]{3})-R(\d{2})-S(\d{2})-B(\d{2})$/i);
-    if (!match) return null;
-    return {
-        category: match[1],
-        rack: parseInt(match[2], 10),
-        shelf: parseInt(match[3], 10),
-        bin: parseInt(match[4], 10)
-    };
+
+    let match = loc.match(/^([A-Z]{3})-R(\d+)-S(\d+)-B(\d+)$/i);
+    if (match) {
+        return {
+            category: match[1],
+            rack: parseInt(match[2], 10),
+            shelf: parseInt(match[3], 10),
+            bin: parseInt(match[4], 10)
+        };
+    }
+
+    match = loc.match(/^R(\d+)-S(\d+)-B(\d+)$/i);
+    if (match) {
+        return {
+            category: '',
+            rack: parseInt(match[1], 10),
+            shelf: parseInt(match[2], 10),
+            bin: parseInt(match[3], 10)
+        };
+    }
+    return null;
 };
 
-const RealisticRack = ({ rackId, medicines, targetLoc, imageIndex, isActive }) => {
+const toAbsoluteBin = (r, s, b) => {
+    return (r - 1) * (MAX_SHELVES * MAX_BINS) + (s - 1) * MAX_BINS + (b - 1);
+};
 
-    const rackMeds = useMemo(() => {
-        return medicines.filter(m => {
+const RealisticRack = ({ rackId, medicines, selectedMed, targetLoc, imageIndex, isActive }) => {
+
+    const targetStartAbs = targetLoc ? toAbsoluteBin(targetLoc.rack, targetLoc.shelf, targetLoc.bin) : -1;
+    const targetBinsCount = selectedMed && Number(selectedMed.quantity) > 0 ? Math.ceil(Number(selectedMed.quantity) / BIN_CAPACITY) : 0;
+
+    const targetSet = useMemo(() => {
+        const set = new Set();
+        if (targetStartAbs !== -1) {
+            for(let i=0; i<targetBinsCount; i++) set.add(targetStartAbs + i);
+        }
+        return set;
+    }, [targetStartAbs, targetBinsCount]);
+
+    const occupiedAbsoluteBins = useMemo(() => {
+        const occupied = new Set();
+        medicines.forEach(m => {
+            if (selectedMed && String(m.id) === String(selectedMed.id)) return;
+
+            if (Number(m.quantity) <= 0) return;
+
             const loc = parseLocation(m.rackLocation);
-            return loc && loc.rack === rackId;
+            if (loc && loc.rack >= 1 && loc.rack <= MAX_RACKS && loc.shelf >= 1 && loc.shelf <= MAX_SHELVES && loc.bin >= 1 && loc.bin <= MAX_BINS) {
+                const startAbs = toAbsoluteBin(loc.rack, loc.shelf, loc.bin);
+                const binsTaken = Math.ceil(Number(m.quantity) / BIN_CAPACITY);
+                for (let i = 0; i < binsTaken; i++) {
+                    occupied.add(startAbs + i);
+                }
+            }
         });
-    }, [medicines, rackId]);
+        return occupied;
+    }, [medicines, selectedMed]);
 
     const bgImage = RACK_IMAGES[imageIndex % RACK_IMAGES.length];
 
@@ -78,18 +123,18 @@ const RealisticRack = ({ rackId, medicines, targetLoc, imageIndex, isActive }) =
                     <div key={shelfNum} className="flex justify-between items-end w-full h-[18%] mb-[0.2%]">
                         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((binNum) => {
 
-                            const isTargetBin = targetLoc?.rack === rackId && targetLoc?.shelf === shelfNum && targetLoc?.bin === binNum;
-                            const isOccupied = isTargetBin || rackMeds.some(m => {
-                                const loc = parseLocation(m.rackLocation);
-                                return loc && loc.shelf === shelfNum && loc.bin === binNum;
-                            });
+                            const currentAbsBin = toAbsoluteBin(rackId, shelfNum, binNum);
+                            const isTargetBin = targetSet.has(currentAbsBin);
+                            const isFirstTargetBin = isTargetBin && currentAbsBin === targetStartAbs;
+                            const isOccupied = occupiedAbsoluteBins.has(currentAbsBin);
+                            const showGlow = isTargetBin || isOccupied;
 
                             return (
                                 <div key={binNum} className="relative flex-1 flex justify-center items-end h-full px-[2px] pb-[3%] group">
-                                    {isOccupied && (
-                                        <div className={`relative flex flex-col items-center justify-end w-full h-[80%] transition-all duration-500 cursor-pointer ${isTargetBin && isActive ? 'z-50' : 'z-10 hover:-translate-y-1 opacity-85 hover:opacity-100'}`}>
+                                    {showGlow && (
+                                        <div className={`relative flex flex-col items-center justify-end w-full h-[80%] transition-all duration-500 cursor-pointer ${isTargetBin && isActive ? 'z-50' : 'z-10 hover:-translate-y-1 opacity-90 hover:opacity-100'}`}>
 
-                                            {isTargetBin && isActive && (
+                                            {isFirstTargetBin && isActive && (
                                                 <div className="absolute -top-12 left-1/2 -translate-x-1/2 flex flex-col items-center animate-bounce z-50 pointer-events-none font-sans">
                                                     <div className="bg-sky-500 text-white text-[10px] font-bold px-2.5 py-0.5 rounded shadow-xl uppercase tracking-widest border border-sky-300 whitespace-nowrap">
                                                         Target
@@ -99,27 +144,27 @@ const RealisticRack = ({ rackId, medicines, targetLoc, imageIndex, isActive }) =
                                             )}
 
                                             {isTargetBin && isActive && (
-                                                <div className="absolute bottom-[5%] w-[80%] h-[120%] bg-gradient-to-t from-sky-400/60 via-sky-400/10 to-transparent blur-[6px] animate-pulse pointer-events-none rounded-t-full"></div>
+                                                <div className="absolute bottom-[5%] w-[80%] h-[120%] bg-gradient-to-t from-sky-400/70 via-sky-400/20 to-transparent blur-[6px] animate-pulse pointer-events-none rounded-t-full"></div>
                                             )}
 
-                                            <div className={`w-[95%] h-[30%] rounded-[50%] blur-[4px] absolute bottom-0 
+                                            <div className={`w-[95%] h-[30%] rounded-[50%] blur-[3px] absolute bottom-0 
                                                 ${isTargetBin && isActive
-                                                ? 'bg-sky-400/80 shadow-[0_0_25px_8px_rgba(56,189,248,0.8)] animate-pulse'
-                                                : 'bg-purple-500/70 shadow-[0_0_15px_4px_rgba(168,85,247,0.6)] group-hover:bg-purple-400/90 group-hover:shadow-[0_0_20px_6px_rgba(168,85,247,0.8)] transition-all'
+                                                ? 'bg-sky-400 shadow-[0_0_20px_6px_rgba(56,189,248,1)] animate-pulse'
+                                                : 'bg-red-600 shadow-[0_0_18px_6px_rgba(220,38,38,0.9)] group-hover:bg-red-500 group-hover:shadow-[0_0_22px_8px_rgba(239,68,68,1)] transition-all'
                                             }`}>
                                             </div>
 
                                             <div className={`w-[50%] h-[15%] rounded-[50%] absolute bottom-[5%] blur-[1px]
                                                 ${isTargetBin && isActive
                                                 ? 'bg-white shadow-[0_0_15px_3px_rgba(255,255,255,1)] animate-pulse'
-                                                : 'bg-purple-200 shadow-[0_0_10px_2px_rgba(216,180,254,1)] group-hover:bg-white'
+                                                : 'bg-red-200 shadow-[0_0_12px_3px_rgba(254,202,202,1)] group-hover:bg-white'
                                             }`}>
                                             </div>
 
                                             <div className={`w-[60%] h-[2px] absolute bottom-[2%] rounded-full blur-[0.5px]
                                                 ${isTargetBin && isActive
                                                 ? 'bg-sky-200 shadow-[0_0_8px_2px_rgba(56,189,248,1)]'
-                                                : 'bg-purple-300 shadow-[0_0_5px_1px_rgba(168,85,247,0.8)]'
+                                                : 'bg-red-300 shadow-[0_0_6px_2px_rgba(248,113,113,0.9)]'
                                             }`}>
                                             </div>
 
@@ -135,7 +180,6 @@ const RealisticRack = ({ rackId, medicines, targetLoc, imageIndex, isActive }) =
     );
 };
 
-
 export default function RackLocatorPage() {
     const [medicines, setMedicines] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -145,41 +189,47 @@ export default function RackLocatorPage() {
     const [currentIndex, setCurrentIndex] = useState(0);
 
     useEffect(() => {
+        const controller = new AbortController();
+
         const fetchInventory = async () => {
             setLoading(true);
             try {
                 const token = localStorage.getItem('token');
-                const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+                const config = {
+                    ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+                    signal: controller.signal
+                };
+
                 const res = await axios.get('http://localhost:5000/api/medicines', config);
                 const data = Array.isArray(res.data) ? res.data : (res.data.content || []);
 
-                const validMeds = data.filter(m => m.rackLocation && m.rackLocation.match(/^([A-Z]{3})-R(\d{2})-S(\d{2})-B(\d{2})$/i));
+
+                const validMeds = data.filter(m =>
+                    m.rackLocation &&
+                    m.rackLocation.match(/^(?:[A-Z]{3}-)?R(\d{2})-S(\d{2})-B(\d{2})$/i) &&
+                    Number(m.quantity) > 0
+                );
+
                 setMedicines(validMeds);
             } catch (err) {
-                console.error("Fetch Error:", err);
-                toast.error('Failed to load inventory for Rack Mapping');
+                if (!axios.isCancel(err)) {
+                    console.error("Fetch Error:", err);
+                    toast.error('Failed to load inventory for Rack Mapping');
+                }
             } finally {
                 setLoading(false);
             }
         };
         fetchInventory();
+
+        return () => {
+            controller.abort();
+        };
     }, []);
 
     const targetLoc = parseLocation(selectedMed?.rackLocation);
 
-    const distinctRacks = useMemo(() => {
-        const racks = new Set(medicines.map(m => parseLocation(m.rackLocation)?.rack).filter(Boolean));
-        const sortedRacks = [...racks].sort((a, b) => a - b);
-
-        if (sortedRacks.length < 6) {
-            let i = 1;
-            while (sortedRacks.length < 6) {
-                if (!sortedRacks.includes(i)) sortedRacks.push(i);
-                i++;
-            }
-        }
-        return sortedRacks.sort((a, b) => a - b);
-    }, [medicines]);
+    const distinctRacks = Array.from({ length: MAX_RACKS }, (_, i) => i + 1);
 
     const N = distinctRacks.length;
 
@@ -219,7 +269,12 @@ export default function RackLocatorPage() {
 
     return (
         <AdminLayout>
-            <div className="relative font-sans z-0 min-h-[calc(100vh-6rem)] bg-slate-50/80 backdrop-blur-[24px] rounded-[32px] border border-white/60 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden p-6 mb-4 flex flex-col">
+            <style>{`
+                .hide-scrollbar::-webkit-scrollbar { display: none; }
+                .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+            `}</style>
+
+            <div className="relative font-sans z-0 min-h-[calc(100vh-6rem)] bg-slate-50/80 backdrop-blur-[24px] rounded-[32px] border border-white/60 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden p-6 mb-4 flex flex-col hide-scrollbar">
 
                 <div className="absolute inset-0 z-[-3] opacity-[0.03] pointer-events-none mix-blend-multiply" style={{ backgroundImage: "url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjEuNSIgZmlsbD0iIzBmMzQ2MCIvPjwvc3ZnPg==')" }}></div>
                 <div className="absolute top-[-20%] left-[-10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-br from-sky-200/20 to-slate-300/20 blur-[120px] pointer-events-none z-[-2]"></div>
@@ -256,7 +311,7 @@ export default function RackLocatorPage() {
                         </div>
 
                         {filteredSuggestions.length > 0 && (
-                            <div className="absolute top-[115%] left-0 w-full bg-white/95 backdrop-blur-3xl border border-slate-200 shadow-2xl rounded-[24px] max-h-[300px] overflow-y-auto z-[100] py-3 font-sans">
+                            <div className="absolute top-[115%] left-0 w-full bg-white/95 backdrop-blur-3xl border border-slate-200 shadow-2xl rounded-[24px] max-h-[300px] overflow-y-auto hide-scrollbar z-[100] py-3 font-sans">
                                 {filteredSuggestions.map(m => (
                                     <div key={m.id} onClick={() => handleSearchSelect(m)} className="px-6 py-3.5 hover:bg-sky-50/80 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center transition-colors">
                                         <div>
@@ -289,24 +344,29 @@ export default function RackLocatorPage() {
 
                                     <div className="relative z-10 flex flex-col mb-6 mt-6">
                                         <h2 className="text-[24px] font-bold text-slate-800 tracking-tight leading-tight">{selectedMed.name}</h2>
-                                        <p className="text-[14px] font-bold text-slate-600 mt-1">{selectedMed.dosage}</p>
+                                        <div className="flex flex-col mt-1">
+                                            <span className="text-[14px] font-bold text-slate-600">{selectedMed.dosage}</span>
+                                            <span className="text-[13px] font-medium text-slate-400 mt-0.5">{selectedMed.category}</span>
+                                        </div>
                                     </div>
 
                                     <div className="relative z-10 space-y-3">
                                         <div className="flex justify-between items-center p-4 bg-white/60 rounded-2xl border border-slate-100 shadow-sm">
                                             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5"><Layers size={14}/> Rack Code</span>
-                                            <span className="text-[14px] font-bold text-slate-800">{targetLoc.category}-R{String(targetLoc.rack).padStart(2,'0')}</span>
+                                            <span className="text-[14px] font-bold text-slate-800">
+                                                {selectedMed.rackLocation}
+                                            </span>
                                         </div>
                                         <div className="flex justify-between items-center p-4 bg-[#0ea5e9] text-white rounded-2xl shadow-[0_8px_20px_-6px_rgba(14,165,233,0.5)] border border-[#38bdf8] relative overflow-hidden">
                                             <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -translate-y-10 translate-x-10 pointer-events-none"></div>
                                             <span className="text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 z-10"><MapPin size={14}/> Exact Position</span>
                                             <span className="text-[15px] font-bold z-10 text-right">
-                                                Shelf {targetLoc.shelf} <br/> Bin {targetLoc.bin}
+                                                Shelf {targetLoc?.shelf} <br/> Bin {targetLoc?.bin}
                                             </span>
                                         </div>
                                         <div className="flex justify-between items-center p-4 bg-white/60 rounded-2xl border border-slate-100 shadow-sm mt-2">
                                             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5"><Box size={14}/> Current Stock</span>
-                                            <span className="text-[14px] font-bold text-slate-800">{selectedMed.quantity} Units</span>
+                                            <span className="text-[14px] font-bold text-slate-800">{Number(selectedMed.quantity).toLocaleString(undefined, {minimumFractionDigits: 2})} Units</span>
                                         </div>
                                     </div>
 
@@ -368,6 +428,7 @@ export default function RackLocatorPage() {
                                                 <RealisticRack
                                                     rackId={rackId}
                                                     targetLoc={selectedMed ? targetLoc : null}
+                                                    selectedMed={selectedMed}
                                                     medicines={medicines}
                                                     imageIndex={index}
                                                     isActive={isCenter}
@@ -405,7 +466,7 @@ export default function RackLocatorPage() {
                                                 <span className="text-[11px] font-bold text-slate-600">Target Medicine</span>
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                <div className="w-3.5 h-3.5 rounded-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.8)] border border-purple-300"></div>
+                                                <div className="w-3.5 h-3.5 rounded-full bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.8)] border border-red-400"></div>
                                                 <span className="text-[11px] font-bold text-slate-600">Occupied Bin</span>
                                             </div>
                                             <div className="flex items-center gap-2">
