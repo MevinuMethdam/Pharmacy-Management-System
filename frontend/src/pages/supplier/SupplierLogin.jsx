@@ -1,7 +1,7 @@
 import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
-import { Mail, Lock, ShieldCheck, HeartPulse, AlertCircle } from 'lucide-react';
+import { Mail, Lock, ShieldCheck, AlertCircle } from 'lucide-react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
@@ -55,18 +55,9 @@ export default function SupplierLogin() {
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-900/95 via-slate-800/60 to-slate-900/40"></div>
 
-                <div className="relative z-10 flex flex-col justify-between p-12 text-white w-full h-full">
-                    <div className="flex items-center gap-4">
-                        <div>
-                            <div className="flex items-baseline gap-1.5">
-                                <span className="text-xl font-bold text-white tracking-tight">Kegalle</span>
-                                <span className="text-xl font-black text-sky-400 tracking-tight">Ph4Life</span>
-                            </div>
-                            <p className="text-[10px] font-semibold text-slate-300 uppercase tracking-widest mt-0.5">Supply Chain Portal</p>
-                        </div>
-                    </div>
+                <div className="relative z-10 flex flex-col justify-end p-12 pb-32 text-white w-full h-full">
 
-                    <div className="space-y-6 max-w-lg mb-10">
+                    <div className="space-y-6 max-w-lg">
                         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-sky-100 text-[11px] font-semibold uppercase tracking-wider">
                             <ShieldCheck size={14} className="text-sky-300" /> Secure Vendor Management
                         </div>
@@ -78,12 +69,6 @@ export default function SupplierLogin() {
                         </p>
                     </div>
 
-                    <div className="flex items-center justify-between text-xs text-slate-400 font-medium border-t border-white/10 pt-6">
-                        <span>© 2026 Kegalle Ph4Life System</span>
-                        <div className="flex items-center gap-1.5 text-sky-400/80">
-                            <HeartPulse size={14} /> Verified Secure Portal
-                        </div>
-                    </div>
                 </div>
             </div>
 
