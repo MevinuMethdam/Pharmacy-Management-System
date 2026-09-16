@@ -174,7 +174,8 @@ exports.setupPassword = async (req, res) => {
 
         await supplier.update({
             password: hashedPassword,
-            portalStatus: 'Active'
+            portalStatus: 'Active',
+            status: 'Active'
         });
 
         res.status(200).json({ message: 'Password configured successfully. Welcome aboard!' });
