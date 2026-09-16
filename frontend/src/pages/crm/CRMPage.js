@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import AdminLayout from '../../components/layout/AdminLayout';
-import { Search, Plus, Users, Edit, Trash2, Phone, Mail, MapPin, X, Star, Activity, CreditCard, Sparkles, ShieldCheck } from 'lucide-react';
-import axios from 'axios';
+import { Search, Plus, Users, Edit, Trash2, Phone, Mail, MapPin, X, Star, Activity, CreditCard, Sparkles, ShieldCheck, AlertCircle } from 'lucide-react';
+import axios from '../../api/axiosInstance';
 import toast from 'react-hot-toast';
 import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
@@ -16,6 +16,8 @@ export default function CRMPage() {
     const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
     const [editingCustomer, setEditingCustomer] = useState(null);
     const [submitting, setSubmitting] = useState(false);
+
+    const [formErrors, setFormErrors] = useState({});
 
     const [showAIInsightsModal, setShowAIInsightsModal] = useState(false);
     const [selectedCustomerForAI, setSelectedCustomerForAI] = useState(null);
@@ -33,20 +35,70 @@ export default function CRMPage() {
         loyaltyPoints: 0
     });
 
-    useEffect(() => {
-        fetchData();
-    }, []);
-
-    const fetchData = async () => {
+    const fetchData = async (controller = null) => {
         setLoading(true);
         try {
-            const res = await axios.get('http://localhost:5000/api/crm/customers');
+            const config = {
+                ...(controller ? { signal: controller.signal } : {})
+            };
+            const res = await axios.get('http://localhost:5000/api/crm/customers', config);
             setCustomers(res.data || []);
         } catch (err) {
-            toast.error('Failed to load CRM data');
+            if (!axios.isCancel(err)) {
+                toast.error('Failed to load CRM data');
+            }
         } finally {
             setLoading(false);
         }
+    };
+
+    useEffect(() => {
+        const controller = new AbortController();
+        fetchData(controller);
+
+        return () => {
+            controller.abort();
+        };
+    }, []);
+
+    const handleNicChange = (val, currentAge) => {
+        const nicValue = val.toUpperCase();
+        let error = null;
+        const ageNum = parseInt(currentAge, 10);
+        const isAdult = isNaN(ageNum) || ageNum > 18;
+
+        if (isAdult && !nicValue.trim()) {
+            error = 'NIC is required for patients over 18 years old.';
+        } else if (nicValue.trim()) {
+            const nicRegex = /^([0-9]{9}[x|X|v|V]|[0-9]{12})$/i;
+            if (!nicRegex.test(nicValue)) {
+                error = 'Invalid format (e.g. 987654321V or 199876543210)';
+            } else if (isAdult) {
+                const isDup = customers.some(c => c.nic?.toUpperCase() === nicValue && c.id !== editingCustomer?.id);
+                if (isDup) error = 'This NIC is already registered to another patient.';
+            }
+        }
+        setFormErrors(prev => ({ ...prev, nic: error }));
+    };
+
+    const handleContactChange = (val) => {
+        let error = null;
+        if (val.trim()) {
+            if (!/^[0-9]+$/.test(val)) {
+                error = 'Only numbers are allowed.';
+            } else if (val.length < 10) {
+                error = 'Contact Number must be 10 digits.';
+            }
+        }
+        setFormErrors(prev => ({ ...prev, contactNumber: error }));
+    };
+
+    const handleEmailChange = (val) => {
+        let error = null;
+        if (val.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+            error = 'Please enter a valid email address.';
+        }
+        setFormErrors(prev => ({ ...prev, email: error }));
     };
 
     const validateCustomerForm = () => {
@@ -55,7 +107,8 @@ export default function CRMPage() {
             return false;
         }
 
-        if (!customerForm.age || isNaN(customerForm.age) || customerForm.age <= 0 || customerForm.age > 120) {
+        const ageNum = parseInt(customerForm.age, 10);
+        if (!customerForm.age || isNaN(ageNum) || ageNum <= 0 || ageNum > 120) {
             toast.error('Please enter a valid age between 1 and 120');
             return false;
         }
@@ -65,16 +118,34 @@ export default function CRMPage() {
             return false;
         }
 
-        const nicRegex = /^([0-9]{9}[x|X|v|V]|[0-9]{12})$/;
-        if (!customerForm.nic || !nicRegex.test(customerForm.nic)) {
-            toast.error('Please enter a valid Sri Lankan NIC (e.g. 987654321V or 199876543210)');
-            return false;
-        }
-
         const phoneRegex = /^[0-9]{10}$/;
         if (!phoneRegex.test(customerForm.contactNumber)) {
             toast.error('Please enter a valid 10-digit contact number (e.g. 0771234567)');
             return false;
+        }
+
+        const isAdult = ageNum > 18;
+        const nicRegex = /^([0-9]{9}[x|X|v|V]|[0-9]{12})$/i;
+
+        if (isAdult) {
+            if (!customerForm.nic || !customerForm.nic.trim()) {
+                toast.error('NIC is required for patients over 18');
+                return false;
+            }
+            if (!nicRegex.test(customerForm.nic)) {
+                toast.error('Invalid NIC format');
+                return false;
+            }
+            const isDup = customers.some(c => c.nic?.toUpperCase() === customerForm.nic.toUpperCase() && c.id !== editingCustomer?.id);
+            if (isDup) {
+                toast.error('This NIC is already registered');
+                return false;
+            }
+        } else {
+            if (customerForm.nic && customerForm.nic.trim() && !nicRegex.test(customerForm.nic)) {
+                toast.error('Invalid NIC format');
+                return false;
+            }
         }
 
         if (customerForm.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerForm.email)) {
@@ -82,10 +153,11 @@ export default function CRMPage() {
             return false;
         }
 
-        if (customerForm.loyaltyPoints < 0) {
-            toast.error('Loyalty points cannot be negative');
+        if (formErrors.nic || formErrors.email || formErrors.contactNumber) {
+            toast.error('Please fix the errors in the form before saving.');
             return false;
         }
+
         return true;
     };
 
@@ -133,6 +205,7 @@ export default function CRMPage() {
 
     const openEditCustomer = (customer) => {
         setEditingCustomer(customer);
+        setFormErrors({});
         setCustomerForm({
             name: customer.name || '',
             nic: customer.nic || '',
@@ -149,6 +222,7 @@ export default function CRMPage() {
     const closeCustomerModal = () => {
         setIsCustomerModalOpen(false);
         setEditingCustomer(null);
+        setFormErrors({});
         setCustomerForm({ name: '', nic: '', contactNumber: '', age: '', gender: '', email: '', address: '', loyaltyPoints: 0 });
     };
 
@@ -162,9 +236,11 @@ export default function CRMPage() {
             const res = await axios.get(`http://localhost:5000/api/crm/customers/${customer.id}/ai-insights`);
             setAiRecommendation(res.data);
         } catch (error) {
-            console.error(error);
-            toast.error("Failed to connect to AI. Please try again.");
-            setShowAIInsightsModal(false);
+            if (!axios.isCancel(error)) {
+                console.error(error);
+                toast.error("Failed to connect to AI. Please try again.");
+                setShowAIInsightsModal(false);
+            }
         } finally {
             setAiInsightLoading(false);
         }
@@ -273,6 +349,11 @@ export default function CRMPage() {
 
     return (
         <AdminLayout>
+            <style>{`
+                .hide-scrollbar::-webkit-scrollbar { display: none; }
+                .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+            `}</style>
+
             <div className="relative font-sans z-0 min-h-[calc(100vh-6rem)] bg-slate-50/80 backdrop-blur-[24px] rounded-[32px] border border-white/60 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden p-6 mb-4">
 
                 <div className="absolute inset-0 z-[-3] opacity-[0.03] pointer-events-none mix-blend-multiply"
@@ -442,7 +523,7 @@ export default function CRMPage() {
 
             {isCustomerModalOpen && createPortal(
                 <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
-                    <div className="bg-white/80 backdrop-blur-2xl p-8 rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[550px] max-h-[90vh] overflow-y-auto">
+                    <div className="bg-white/80 backdrop-blur-2xl p-8 rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[550px] max-h-[90vh] overflow-y-auto hide-scrollbar">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-[20px] font-bold text-slate-800 flex items-center gap-2.5">
                                 <Users className="w-5 h-5 text-teal-600"/> {editingCustomer ? 'Edit Patient / Customer' : 'Add New Patient / Customer'}
@@ -461,7 +542,14 @@ export default function CRMPage() {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Age <span className="text-rose-500">*</span></label>
-                                    <input type="number" required min="1" max="120" placeholder="e.g. 35" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-teal-500/40 shadow-sm backdrop-blur-sm" value={customerForm.age} onChange={(e) => setCustomerForm({...customerForm, age: e.target.value})} />
+                                    <input type="number" required min="1" max="120" placeholder="e.g. 35" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-teal-500/40 shadow-sm backdrop-blur-sm"
+                                           value={customerForm.age}
+                                           onChange={(e) => {
+                                               const val = e.target.value;
+                                               setCustomerForm({...customerForm, age: val});
+                                               handleNicChange(customerForm.nic, val);
+                                           }}
+                                    />
                                 </div>
                                 <div>
                                     <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Gender <span className="text-rose-500">*</span></label>
@@ -477,31 +565,54 @@ export default function CRMPage() {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Contact Number <span className="text-rose-500">*</span></label>
-                                    <input type="text" required placeholder="e.g. 0771234567" maxLength="10" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-teal-500/40 shadow-sm backdrop-blur-sm" value={customerForm.contactNumber} onChange={(e) => setCustomerForm({...customerForm, contactNumber: e.target.value})} />
+                                    <input type="text" required placeholder="e.g. 0771234567" maxLength="10"
+                                           className={`w-full px-4 py-3 bg-white/60 border ${formErrors.contactNumber ? 'border-rose-500 focus:ring-rose-500/40' : 'border-white/80 focus:ring-teal-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 shadow-sm backdrop-blur-sm`}
+                                           value={customerForm.contactNumber}
+                                           onChange={(e) => {
+                                               const val = e.target.value;
+                                               setCustomerForm({...customerForm, contactNumber: val});
+                                               handleContactChange(val);
+                                           }}
+                                    />
+                                    {formErrors.contactNumber && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1 flex items-center gap-1"><AlertCircle size={10}/> {formErrors.contactNumber}</p>}
                                 </div>
                                 <div>
-                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Loyalty Points</label>
-                                    <input type="number" min="0" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-teal-500/40 shadow-sm backdrop-blur-sm" value={customerForm.loyaltyPoints} onChange={(e) => setCustomerForm({...customerForm, loyaltyPoints: e.target.value})} />
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+                                        NIC Number {(!customerForm.age || parseInt(customerForm.age) > 18) && <span className="text-rose-500">*</span>}
+                                    </label>
+                                    <input type="text" placeholder="e.g. 987654321V"
+                                           className={`w-full px-4 py-3 bg-white/60 border ${formErrors.nic ? 'border-rose-500 focus:ring-rose-500/40' : 'border-white/80 focus:ring-teal-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 shadow-sm backdrop-blur-sm`}
+                                           value={customerForm.nic}
+                                           onChange={(e) => {
+                                               const val = e.target.value.toUpperCase();
+                                               setCustomerForm({...customerForm, nic: val});
+                                               handleNicChange(val, customerForm.age);
+                                           }}
+                                    />
+                                    {formErrors.nic && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1 flex items-center gap-1"><AlertCircle size={10}/> {formErrors.nic}</p>}
                                 </div>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">NIC Number <span className="text-rose-500">*</span></label>
-                                    <input type="text" required placeholder="e.g. 987654321V" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-teal-500/40 shadow-sm backdrop-blur-sm" value={customerForm.nic} onChange={(e) => setCustomerForm({...customerForm, nic: e.target.value.toUpperCase()})} />
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Email</label>
+                                    <input type="email" placeholder="Optional"
+                                           className={`w-full px-4 py-3 bg-white/60 border ${formErrors.email ? 'border-rose-500 focus:ring-rose-500/40' : 'border-white/80 focus:ring-teal-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 shadow-sm backdrop-blur-sm`}
+                                           value={customerForm.email}
+                                           onChange={(e) => {
+                                               setCustomerForm({...customerForm, email: e.target.value});
+                                               handleEmailChange(e.target.value);
+                                           }}
+                                    />
+                                    {formErrors.email && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1 flex items-center gap-1"><AlertCircle size={10}/> {formErrors.email}</p>}
                                 </div>
                                 <div>
-                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Email</label>
-                                    <input type="email" placeholder="Optional" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-teal-500/40 shadow-sm backdrop-blur-sm" value={customerForm.email} onChange={(e) => setCustomerForm({...customerForm, email: e.target.value})} />
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Address</label>
+                                    <input type="text" placeholder="Optional" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-teal-500/40 shadow-sm backdrop-blur-sm" value={customerForm.address} onChange={(e) => setCustomerForm({...customerForm, address: e.target.value})} />
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Address</label>
-                                <input type="text" placeholder="Optional" className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-teal-500/40 shadow-sm backdrop-blur-sm" value={customerForm.address} onChange={(e) => setCustomerForm({...customerForm, address: e.target.value})} />
-                            </div>
-
-                            <button type="submit" disabled={submitting} className="w-full mt-4 bg-teal-500/90 backdrop-blur-md text-white font-bold py-3.5 rounded-2xl shadow-[0_10px_25px_-5px_rgba(20,184,166,0.3)] hover:bg-teal-600 transition-all active:scale-[0.98] text-[15px] cursor-pointer disabled:opacity-50 border border-teal-400/50">
+                            <button type="submit" disabled={submitting || Object.values(formErrors).some(err => err !== null)} className="w-full mt-4 bg-teal-500/90 backdrop-blur-md text-white font-bold py-3.5 rounded-2xl shadow-[0_10px_25px_-5px_rgba(20,184,166,0.3)] hover:bg-teal-600 transition-all active:scale-[0.98] text-[15px] cursor-pointer disabled:opacity-50 border border-teal-400/50">
                                 {submitting ? 'Saving...' : 'Save Patient / Customer'}
                             </button>
                         </form>
