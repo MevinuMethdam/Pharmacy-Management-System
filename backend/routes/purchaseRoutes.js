@@ -2,7 +2,11 @@ const express = require('express');
 const router = express.Router();
 const purchaseController = require('../controllers/purchaseController');
 
-router.post('/', purchaseController.createPurchase);
+const {verifyToken} = require('../middleware/authMiddleware');
+
 router.get('/', purchaseController.getAllPurchases);
+router.post('/', purchaseController.createPurchase);
+
+router.get('/my-purchases', verifyToken, purchaseController.getSupplierPurchases);
 
 module.exports = router;
