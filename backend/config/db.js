@@ -8,11 +8,10 @@ const sequelize = new Sequelize(
     {
         host: process.env.DB_HOST || 'localhost',
         dialect: 'mysql',
-        logging: false, // SQL queries ටර්මිනල් එකේ පේන එක නවත්වයි
+        logging: false,
     }
 );
 
-// Database එකට හරියට Connect වුණාද කියලා බැලීම පමණක් සිදු කරයි (Tables auto-create කරන්නේ නැත)
 sequelize.authenticate()
     .then(() => {
         console.log('✅ MySQL Database Connected Successfully! (Manual Mode)');
