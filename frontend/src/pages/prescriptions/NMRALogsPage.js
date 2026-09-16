@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { Search, ShieldAlert, Download, FileText, Calendar, CheckCircle, AlertTriangle, Activity } from 'lucide-react';
-import axios from 'axios';
+import axios from '../../api/axiosInstance';
 import toast from 'react-hot-toast';
 import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
@@ -11,22 +11,32 @@ export default function NMRALogsPage() {
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(false);
 
-    useEffect(() => {
-        fetchLogs();
-    }, []);
-
-    const fetchLogs = async () => {
+    const fetchLogs = async (controller = null) => {
         setLoading(true);
         try {
-            const res = await axios.get('http://localhost:5000/api/nmra-logs');
+            const config = {
+                ...(controller ? { signal: controller.signal } : {})
+            };
+            const res = await axios.get('http://localhost:5000/api/nmra-logs', config);
             setLogs(res.data || []);
         } catch (err) {
-            toast.error('Failed to load NMRA logs');
-            console.error(err);
+            if (!axios.isCancel(err)) {
+                toast.error('Failed to load NMRA logs');
+                console.error(err);
+            }
         } finally {
             setLoading(false);
         }
     };
+
+    useEffect(() => {
+        const controller = new AbortController();
+        fetchLogs(controller);
+
+        return () => {
+            controller.abort();
+        };
+    }, []);
 
     const filteredLogs = logs.filter(log => {
         const drugName = log.medicineName?.toLowerCase() || '';
