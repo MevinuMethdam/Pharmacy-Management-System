@@ -94,18 +94,22 @@ export default function POSPage() {
         const rx = pendingPrescriptions.find(p => String(p.id) === String(rxId));
         if (!rx) return;
 
-        if (rx.patient?.name) setCustomerName(rx.patient.name);
-        if (rx.doctor?.name) setDoctorName(rx.doctor.name);
+        setCustomerName(rx.patientName || rx.patient?.name || '');
+        setDoctorName(rx.doctorName || rx.doctor?.name || '');
 
-        if (rx.items && rx.items.length > 0) {
+        const rxItems = rx.prescribedMedicines || rx.items || [];
+
+        if (rxItems && rxItems.length > 0) {
             let updatedCart = [...cart];
+            let addedCount = 0;
 
-            rx.items.forEach(item => {
-                const med = medicines.find(m => m.id === item.medicineId);
+            rxItems.forEach(item => {
+                const med = medicines.find(m => String(m.id) === String(item.medicineId));
                 if (med) {
-                    const existingItem = updatedCart.find(c => c.medicineId === med.id);
+                    addedCount++;
+                    const existingItem = updatedCart.find(c => String(c.medicineId) === String(med.id));
                     if (existingItem) {
-                        existingItem.quantity += (item.quantity || 1);
+                        existingItem.quantity += Number(item.quantity || 1);
                         existingItem.isRx = true;
                     } else {
                         updatedCart.push({
@@ -113,7 +117,7 @@ export default function POSPage() {
                             name: med.name,
                             batchNumber: med.batchNumber,
                             sellingPrice: med.sellingPrice,
-                            quantity: item.quantity || 1,
+                            quantity: Number(item.quantity || 1),
                             maxStock: med.quantity,
                             isControlled: Boolean(med.isControlled || med.is_controlled),
                             isRx: true
@@ -121,8 +125,14 @@ export default function POSPage() {
                     }
                 }
             });
+
             setCart(updatedCart);
-            toast.success(`Loaded prescription RX-${String(rx.id).padStart(4, '0')} successfully!`);
+
+            if (addedCount > 0) {
+                toast.success(`Loaded prescription RX-${String(rx.id).padStart(4, '0')} successfully!`);
+            } else {
+                toast.error('Medicines in this prescription are out of stock or not found in inventory.');
+            }
         } else {
             toast.error('Selected prescription has no medicines attached.');
         }
@@ -204,18 +214,6 @@ export default function POSPage() {
 
             await salesApi.checkout(payload);
 
-            await Promise.all(cart.map(async (item) => {
-                const med = medicines.find(m => m.id === item.medicineId);
-                if (med) {
-                    const newQuantity = med.quantity - item.quantity;
-                    // API Call to update inventory with the remaining quantity
-                    await axios.put(`http://localhost:5000/api/medicines/${med.id}`, {
-                        ...med,
-                        quantity: newQuantity
-                    });
-                }
-            }));
-
             toast.success('Bill generated & Dispensed successfully! 🎉');
 
             setCart([]);
@@ -240,20 +238,6 @@ export default function POSPage() {
             try {
                 if (salesApi.voidSale) {
                     await salesApi.voidSale(id);
-                }
-
-                if (sale.items && Array.isArray(sale.items)) {
-                    await Promise.all(sale.items.map(async (item) => {
-                        const medicineIdToRestore = item.medicineId || item.MedicineId || item.medicine?.id;
-                        const med = medicines.find(m => String(m.id) === String(medicineIdToRestore));
-                        if (med) {
-                            const restoredQuantity = Number(med.quantity) + Number(item.quantity || 1);
-                            await axios.put(`http://localhost:5000/api/medicines/${med.id}`, {
-                                ...med,
-                                quantity: restoredQuantity
-                            });
-                        }
-                    }));
                 }
 
                 toast.success('Sale voided and stock restored successfully!');
@@ -487,7 +471,7 @@ export default function POSPage() {
                                         <option value="">-- Choose Prescription (Optional) --</option>
                                         {pendingPrescriptions.map(rx => (
                                             <option key={rx.id} value={rx.id}>
-                                                RX-{String(rx.id).padStart(4, '0')} - {rx.patient?.name || 'Unknown Patient'} (PID: {rx.patientId || rx.patient?.id || 'N/A'}) - Dr. {rx.doctor?.name || 'Doctor'}
+                                                RX-{String(rx.id).padStart(4, '0')} - {rx.patientName || rx.patient?.name || 'Unknown Patient'} (PID: {rx.patientId || 'N/A'}) - Dr. {rx.doctorName || rx.doctor?.name || 'Doctor'}
                                             </option>
                                         ))}
                                     </select>
