@@ -80,6 +80,22 @@ export default function CashierDashboard() {
 
     const { totalRevenue, totalSales } = todayStats();
 
+    const overallStats = useMemo(() => {
+        let overallRev = 0;
+        let overallCount = 0;
+
+        recentSales.forEach(sale => {
+            if (sale.status === 'Completed') {
+                overallRev += Number(sale.totalAmount || 0);
+                overallCount += 1;
+            }
+        });
+
+        return { overallRev, overallCount };
+    }, [recentSales]);
+
+    const { overallRev, overallCount } = overallStats;
+
     const dynamicMainChartData = useMemo(() => {
         const dateMap = {};
         const completedSales = recentSales.filter(s => s.status === 'Completed');
@@ -241,77 +257,71 @@ export default function CashierDashboard() {
                             <div className="absolute inset-0 bg-[#7c83c2]/70 rounded-[40%_60%_70%_30%/40%_50%_60%_50%] animate-[spin_10s_linear_infinite] mix-blend-multiply blur-[1px] transition-all"></div>
                             <div className="absolute inset-0 bg-[#9fb3d4]/80 rounded-[60%_40%_30%_70%/60%_30%_70%_40%] animate-[spin_12s_linear_infinite_reverse] mix-blend-multiply blur-[1px] transition-all"></div>
                             <div className="relative z-10 w-40 h-40 bg-white rounded-full flex flex-col items-center justify-center shadow-xl border-[5px] border-white">
-                                <span className="text-[48px] leading-none font-bold text-slate-800 tracking-tight">{totalSales}</span>
-                                <span className="text-[9px] font-bold text-slate-400 uppercase text-center mt-2 px-4 leading-relaxed tracking-widest border-t border-slate-100 pt-2">Total<br/>Bills</span>
+                                <span className="text-[56px] leading-none font-bold text-[#1e293b] tracking-tight">{overallCount}</span>
+                                <span className="text-[12px] font-bold text-slate-400 uppercase text-center mt-2 px-4 leading-relaxed tracking-widest border-t border-slate-100 pt-2">Total<br/>Bills</span>
                             </div>
                         </div>
 
                         <div className="flex flex-col gap-6 w-full max-w-md justify-center">
                             <div className="flex items-center gap-6">
-                                <span className="text-[28px] font-black text-[#7c83c2] w-24 text-right tracking-tight">LKR</span>
+                                <span className="text-[28px] font-black italic text-[#7c83c2] w-24 text-right tracking-tight">LKR</span>
                                 <div className="flex-1">
-                                    <h4 className="text-[14px] font-black text-slate-800 tracking-widest uppercase">Total Revenue</h4>
-                                    <p className="text-[11px] font-bold text-slate-400 uppercase mt-1">{totalRevenue.toFixed(2)} Earned Today</p>
+                                    <h4 className="text-[14px] font-black italic text-[#1e293b] tracking-widest uppercase">Total Revenue</h4>
+                                    <p className="text-[11px] font-bold italic text-slate-400 uppercase mt-1">{overallRev.toFixed(2)} Total Earned</p>
                                 </div>
                             </div>
                             <div className="flex items-center gap-6">
-                                <span className="text-[28px] font-black text-[#e48bb5] w-24 text-right tracking-tight">AVG</span>
+                                <span className="text-[28px] font-black italic text-[#e48bb5] w-24 text-right tracking-tight">AVG</span>
                                 <div className="flex-1">
-                                    <h4 className="text-[14px] font-black text-slate-800 tracking-widest uppercase">Bill Value</h4>
-                                    <p className="text-[11px] font-bold text-slate-400 uppercase mt-1">LKR {(totalSales > 0 ? (totalRevenue / totalSales) : 0).toFixed(2)} Per Bill</p>
+                                    <h4 className="text-[14px] font-black italic text-[#1e293b] tracking-widest uppercase">Bill Value</h4>
+                                    <p className="text-[11px] font-bold italic text-slate-400 uppercase mt-1">LKR {(overallCount > 0 ? (overallRev / overallCount) : 0).toFixed(2)} Per Bill</p>
                                 </div>
                             </div>
                             <div className="flex items-center gap-6">
-                                <span className="text-[28px] font-black text-[#8799c7] w-24 text-right tracking-tight">{recentSales.length}</span>
+                                <span className="text-[28px] font-black italic text-[#8799c7] w-24 text-right tracking-tight">{recentSales.length}</span>
                                 <div className="flex-1">
-                                    <h4 className="text-[14px] font-black text-slate-800 tracking-widest uppercase">Records</h4>
-                                    <p className="text-[11px] font-bold text-slate-400 uppercase mt-1">Total Sales Synced</p>
+                                    <h4 className="text-[14px] font-black italic text-[#1e293b] tracking-widest uppercase">Records</h4>
+                                    <p className="text-[11px] font-bold italic text-slate-400 uppercase mt-1">Total Sales Synced</p>
                                 </div>
                             </div>
                             <div className="flex items-center gap-6">
-                                <span className="text-[28px] font-black text-[#e48bb5] w-24 text-right tracking-tight">100%</span>
+                                <span className="text-[28px] font-black italic text-[#e48bb5] w-24 text-right tracking-tight">100%</span>
                                 <div className="flex-1">
-                                    <h4 className="text-[14px] font-black text-slate-800 tracking-widest uppercase">Uptime</h4>
-                                    <p className="text-[11px] font-bold text-slate-400 uppercase mt-1">System Active</p>
+                                    <h4 className="text-[14px] font-black italic text-[#1e293b] tracking-widest uppercase">Uptime</h4>
+                                    <p className="text-[11px] font-bold italic text-slate-400 uppercase mt-1">System Active</p>
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="bg-white/30 backdrop-blur-2xl p-6 rounded-[28px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 flex items-center gap-4 hover:-translate-y-1 transition-transform">
-                            <div className="w-14 h-14 rounded-2xl bg-emerald-100/50 flex items-center justify-center border border-emerald-200/50 text-emerald-600 shadow-sm">
-                                <CreditCard size={24} strokeWidth={2.5} />
+                        <div className="bg-white rounded-[28px] p-6 shadow-[0_4px_20px_-4px_rgba(148,163,184,0.15)] flex flex-col justify-between gap-4 transition-transform hover:-translate-y-1 min-h-[130px]">
+                            <div className="flex items-center justify-between w-full">
+                                <span className="text-[12px] font-bold text-slate-500 uppercase tracking-wider">Today's Revenue</span>
+                                <CreditCard size={18} className="text-emerald-500" />
                             </div>
-                            <div>
-                                <p className="text-[12px] font-bold text-slate-500 uppercase tracking-wider">Today's Revenue</p>
-                                <h3 className="text-[24px] font-black text-slate-800 tracking-tight">LKR {totalRevenue.toFixed(2)}</h3>
-                            </div>
+                            <span className="text-[28px] font-black text-[#1e293b] tracking-tight">LKR {totalRevenue.toFixed(2)}</span>
                         </div>
 
-                        <div className="bg-white/30 backdrop-blur-2xl p-6 rounded-[28px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 flex items-center gap-4 hover:-translate-y-1 transition-transform">
-                            <div className="w-14 h-14 rounded-2xl bg-blue-100/50 flex items-center justify-center border border-blue-200/50 text-blue-600 shadow-sm">
-                                <ShoppingBag size={24} strokeWidth={2.5} />
+                        <div className="bg-white rounded-[28px] p-6 shadow-[0_4px_20px_-4px_rgba(148,163,184,0.15)] flex flex-col justify-between gap-4 transition-transform hover:-translate-y-1 min-h-[130px]">
+                            <div className="flex items-center justify-between w-full">
+                                <span className="text-[12px] font-bold text-slate-500 uppercase tracking-wider">Bills Processed</span>
+                                <ShoppingBag size={18} className="text-blue-500" />
                             </div>
-                            <div>
-                                <p className="text-[12px] font-bold text-slate-500 uppercase tracking-wider">Bills Processed</p>
-                                <h3 className="text-[24px] font-black text-slate-800 tracking-tight">{totalSales} <span className="text-[14px] font-bold text-slate-400">Bills</span></h3>
-                            </div>
+                            <span className="text-[28px] font-black text-[#1e293b] tracking-tight">{totalSales} <span className="text-[14px] font-bold text-slate-400">Bills</span></span>
                         </div>
 
-                        <div className="bg-white/30 backdrop-blur-2xl p-6 rounded-[28px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 flex items-center gap-4 hover:-translate-y-1 transition-transform">
-                            <div className="w-14 h-14 rounded-2xl bg-indigo-100/50 flex items-center justify-center border border-indigo-200/50 text-indigo-600 shadow-sm">
-                                <Activity size={24} strokeWidth={2.5} />
+                        <div className="bg-white rounded-[28px] p-6 shadow-[0_4px_20px_-4px_rgba(148,163,184,0.15)] flex flex-col justify-between gap-4 transition-transform hover:-translate-y-1 min-h-[130px]">
+                            <div className="flex items-center justify-between w-full">
+                                <span className="text-[12px] font-bold text-slate-500 uppercase tracking-wider">Terminal Status</span>
+                                <Activity size={18} className="text-indigo-500" />
                             </div>
-                            <div>
-                                <p className="text-[12px] font-bold text-slate-500 uppercase tracking-wider">Terminal Status</p>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <span className="relative flex h-3 w-3">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                                    </span>
-                                    <span className="text-[16px] font-black text-emerald-600 tracking-tight">Active & Syncing</span>
-                                </div>
+                            <div className="flex items-center gap-2 mt-1">
+                                <span className="relative flex h-3 w-3">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                                </span>
+                                <span className="text-[16px] font-black text-emerald-600 tracking-tight">Active & Syncing</span>
                             </div>
                         </div>
                     </div>
@@ -508,7 +518,6 @@ export default function CashierDashboard() {
                     </div>
                 </div>
 
-                {/* Modals */}
                 <ReceiptModal open={!!detail} onClose={() => setDetail(null)} sale={detail} />
 
                 {editingSale && (
