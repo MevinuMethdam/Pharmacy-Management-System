@@ -1,14 +1,54 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import CashierLayout from '../../components/layout/CashierLayout';
+import { salesApi } from '../../api/salesApi';
+import axios from '../../api/axiosInstance';
 import {
-    Search, Plus, FileText, Eye, CheckCircle, Clock, Filter, X, User,
-    Stethoscope, Calendar, FileCheck, Trash2, Pill, Edit, Printer, ShieldAlert,
-    Sparkles, UploadCloud, AlertTriangle, Image as ImageIcon, CreditCard
+    BarChart3, Download, TrendingUp, TrendingDown, Package,
+    CheckCircle, Ban, Search, FileText, CalendarClock, Users, Pill, AlertTriangle, FileSignature, Filter, Activity,
+    Sparkles, Edit, X, User, CreditCard, Stethoscope, MessageSquare, Plus, UploadCloud, ShieldAlert, Image as ImageIcon,
+    Eye, Trash2, Clock, Calendar, FileCheck, Printer
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import axios from '../../api/axiosInstance';
-import { inventoryApi } from '../../api/inventoryApi';
+import Highcharts from 'highcharts';
+import HighchartsReact from 'highcharts-react-official';
+
+const AnimatedNumber = ({ value, isCurrency = false }) => {
+    const [displayValue, setDisplayValue] = useState(0);
+    const prevValue = useRef(0);
+
+    useEffect(() => {
+        const start = prevValue.current;
+        const end = parseFloat(value) || 0;
+        if (start === end) {
+            setDisplayValue(end);
+            return;
+        }
+
+        let startTimestamp = null;
+        const duration = 1000;
+
+        const step = (timestamp) => {
+            if (!startTimestamp) startTimestamp = timestamp;
+            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+            const easeProgress = 1 - Math.pow(1 - progress, 4);
+            const currentVal = start + (easeProgress * (end - start));
+
+            setDisplayValue(currentVal);
+
+            if (progress < 1) {
+                window.requestAnimationFrame(step);
+            } else {
+                setDisplayValue(end);
+                prevValue.current = end;
+            }
+        };
+
+        window.requestAnimationFrame(step);
+    }, [value]);
+
+    return <span>{isCurrency ? displayValue.toFixed(2) : Math.round(displayValue)}</span>;
+};
 
 const COMMON_SPECIALIZATIONS = [
     "General Physician (MBBS)",
@@ -34,20 +74,24 @@ const COMMON_SPECIALIZATIONS = [
 
 export default function CashierPrescriptionsPage() {
     const [prescriptions, setPrescriptions] = useState([]);
+    const [allSales, setAllSales] = useState([]);
+    const [allCustomers, setAllCustomers] = useState([]);
     const [loading, setLoading] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
+    const [dateRange, setDateRange] = useState('today');
 
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [editingRxId, setEditingRxId] = useState(null);
     const [patients, setPatients] = useState([]);
     const [medicines, setMedicines] = useState([]);
     const [submitting, setUpdating] = useState(false);
-
     const [selectedRx, setSelectedRx] = useState(null);
 
     const [showAIUploadModal, setShowAIUploadModal] = useState(false);
     const [isScanning, setIsScanning] = useState(false);
+    const [uploadedImage, setUploadedImage] = useState(null);
+    const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
     const [showVerifyModal, setShowVerifyModal] = useState(false);
     const [selectedAIRx, setSelectedAIRx] = useState(null);
     const [extractedData, setExtractedData] = useState({ patient: '', doctor: '', medicines: [] });
@@ -66,66 +110,56 @@ export default function CashierPrescriptionsPage() {
     });
 
     useEffect(() => {
-        const controller = new AbortController();
-
-        fetchPrescriptions(controller);
-        fetchPatients(controller);
+        fetchDashboardData();
+        fetchPrescriptions();
+        fetchPatients();
         fetchMedicines();
-
-        return () => {
-            controller.abort();
-        };
     }, []);
 
-    const fetchPrescriptions = async (controller = null) => {
+    const fetchDashboardData = async () => {
         setLoading(true);
         try {
-            const config = {
-                ...(controller ? { signal: controller.signal } : {})
-            };
-            const res = await axios.get('http://localhost:5000/api/prescriptions', config);
-            setPrescriptions(res.data || []);
+            const salesRes = await salesApi.list({ page: 0, size: 5000 });
+            const salesData = Array.isArray(salesRes.data) ? salesRes.data : (salesRes.data?.content || []);
+            setAllSales(salesData);
+
+            const customersRes = await axios.get('http://localhost:5000/api/crm/customers');
+            const customersData = customersRes.data || [];
+            setAllCustomers(customersData);
+
         } catch (err) {
-            if (!axios.isCancel(err)) {
-                console.error('Failed to load prescriptions', err);
-            }
+            console.error('Failed to load report data', err);
+            toast.error('Failed to load report data from server');
         } finally {
             setLoading(false);
         }
     };
 
-    const fetchPatients = async (controller = null) => {
+    const fetchPrescriptions = async () => {
         try {
-            const config = {
-                ...(controller ? { signal: controller.signal } : {})
-            };
+            const res = await axios.get('http://localhost:5000/api/prescriptions');
+            setPrescriptions(res.data || []);
+        } catch (err) {
+            console.error('Failed to load prescriptions', err);
+        }
+    };
+
+    const fetchPatients = async () => {
+        try {
             let res;
             try {
-                res = await axios.get('http://localhost:5000/api/customers', config);
+                res = await axios.get('http://localhost:5000/api/customers');
             } catch (err) {
-                res = await axios.get('http://localhost:5000/api/crm/customers', config);
+                res = await axios.get('http://localhost:5000/api/crm/customers');
             }
-
             const data = Array.isArray(res.data) ? res.data : (res.data?.customers || res.data?.data || res.data?.content || []);
             setPatients(data);
         } catch (err) {
-            if (!axios.isCancel(err)) {
-                console.error("Patient fetch error:", err);
-            }
+            console.error("Patient fetch error:", err);
         }
     };
 
     const fetchMedicines = async () => {
-        try {
-            const res = await inventoryApi.getAll();
-            if (res && res.data) {
-                setMedicines(res.data);
-                return;
-            }
-        } catch (err) {
-            console.error("inventoryApi fetch error, trying fallback...", err);
-        }
-
         try {
             const res = await axios.get('http://localhost:5000/api/medicines');
             if (res && res.data) {
@@ -133,9 +167,7 @@ export default function CashierPrescriptionsPage() {
                 setMedicines(data);
             }
         } catch (err) {
-            if (!axios.isCancel(err)) {
-                console.error("Axios fallback medicine fetch error:", err);
-            }
+            console.error("Axios fallback medicine fetch error:", err);
         }
     };
 
@@ -260,11 +292,6 @@ export default function CashierPrescriptionsPage() {
             return;
         }
 
-        if (form.doctorContactNumber && !/^\d{10}$/.test(form.doctorContactNumber)) {
-            toast.error('Contact number must be exactly 10 digits');
-            return;
-        }
-
         const hasInvalidItems = form.items.some(item => !item.medicineName);
         if (hasInvalidItems) {
             toast.error('Please enter valid medicine names.');
@@ -274,13 +301,6 @@ export default function CashierPrescriptionsPage() {
         setUpdating(true);
         try {
             const selectedPatient = patients.find(p => String(p.id) === String(form.patientId));
-
-            const patientName = selectedPatient ? (selectedPatient.name || selectedPatient.customerName || selectedPatient.patientName || 'Unknown') : 'Unknown';
-            const patientNic = form.patientNic || (selectedPatient ? (selectedPatient.nic || null) : null);
-            const patientAge = selectedPatient ? (selectedPatient.age || null) : null;
-            const patientGender = selectedPatient ? (selectedPatient.gender || null) : null;
-            const patientContactNumber = selectedPatient ? (selectedPatient.contactNumber || null) : null;
-
             const formattedItems = form.items.map(item => ({
                 medicineId: item.medicineId || null,
                 medicineName: item.medicineName,
@@ -290,14 +310,10 @@ export default function CashierPrescriptionsPage() {
 
             const payload = {
                 patientId: form.patientId,
-                patientName: patientName,
-                patientNic: patientNic,
-                patientAge: patientAge,
-                patientGender: patientGender,
-                patientContactNumber: patientContactNumber,
+                patientName: selectedPatient ? (selectedPatient.name || selectedPatient.customerName || 'Unknown') : 'Unknown',
+                patientNic: form.patientNic,
                 doctorName: form.doctorName,
                 doctorSpecialization: form.doctorSpecialization,
-                doctorContactNumber: form.doctorContactNumber,
                 prescriptionDate: form.prescriptionDate,
                 status: form.status,
                 digitalCopyUrl: form.digitalCopyUrl,
@@ -323,28 +339,90 @@ export default function CashierPrescriptionsPage() {
         }
     };
 
-    const handleFileUpload = (e) => {
+    const handleFileChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setUploadedImage(file);
+            const url = URL.createObjectURL(file);
+            setImagePreviewUrl(url);
+        }
+    };
+
+    const getBase64 = (file) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = error => reject(error);
+        });
+    };
+
+    const handleAIFileUpload = async (e) => {
         e.preventDefault();
+        if (!uploadedImage) {
+            toast.error("Please select an image file first.");
+            return;
+        }
+
         setIsScanning(true);
 
-        setTimeout(() => {
+        try {
+            const formData = new FormData();
+            formData.append('prescription', uploadedImage);
+
+            const response = await axios.post('http://localhost:5000/api/prescriptions/scan', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            if (response.data && response.data.extractedData) {
+                const data = response.data.extractedData;
+                const base64Image = await getBase64(uploadedImage);
+
+                let medIds = [];
+                let medNames = [];
+                let medQts = [];
+                let medDosages = [];
+
+                if (data.medicines && data.medicines.length > 0) {
+                    data.medicines.forEach(item => {
+                        medIds.push('null');
+                        medNames.push(item.name || 'Unknown');
+                        medQts.push(1);
+                        medDosages.push(item.dosage || '-');
+                    });
+                }
+
+                const defaultPatient = patients.find(p => p.name?.toLowerCase().includes('walk-in') || p.customerName?.toLowerCase().includes('walk-in')) || patients[0];
+                const defaultPatientId = defaultPatient ? defaultPatient.id : 1;
+
+                const payload = {
+                    patientId: defaultPatientId,
+                    patientName: data.patient || 'Walk-in Customer (AI)',
+                    doctorName: data.doctor || 'Unknown',
+                    prescriptionDate: new Date().toISOString().split('T')[0],
+                    status: 'Pending',
+                    medicineIds: medIds.join(','),
+                    medicineNames: medNames.join(','),
+                    quantities: medQts.join(','),
+                    dosageInstructions: medDosages.join(' || '),
+                    digitalCopyUrl: base64Image
+                };
+
+                await axios.post('http://localhost:5000/api/prescriptions', payload);
+
+                setIsScanning(false);
+                setShowAIUploadModal(false);
+                setUploadedImage(null);
+                setImagePreviewUrl(null);
+                toast.success("AI Scan Complete! Prescription saved to Database.", { icon: '✅' });
+
+                fetchPrescriptions();
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error("AI Scan or Save failed. Please try again.");
             setIsScanning(false);
-            setShowAIUploadModal(false);
-
-            const newRx = {
-                id: 9990 + Math.floor(Math.random() * 10),
-                prescriptionDate: new Date().toISOString().split('T')[0],
-                patientName: 'Sunil Perera (AI Draft)',
-                patientNic: '980756789V',
-                doctorName: 'Dr. Gunaratne',
-                status: 'Pending Verification',
-                isAI: true,
-                imageUrl: 'https://images.unsplash.com/photo-1585435557343-3b092031a831?auto=format&fit=crop&q=80&w=400&h=500'
-            };
-
-            setPrescriptions([newRx, ...prescriptions]);
-            toast.success("AI Scanning Complete! Prescription drafted for verification.", { icon: '✨' });
-        }, 3000);
+        }
     };
 
     const openVerification = (rx) => {
@@ -352,26 +430,66 @@ export default function CashierPrescriptionsPage() {
         setExtractedData({
             patient: rx.patientName?.replace(' (AI Draft)', '') || '',
             doctor: rx.doctorName || '',
-            medicines: [
-                { name: 'Amoxil 250mg', dosage: '1 pill 3 times a day', isControlled: true },
-                { name: 'Panadol 500mg', dosage: '2 pills when needed', isControlled: false }
-            ]
+            medicines: rx.rawExtractedMedicines || []
         });
         setShowVerifyModal(true);
     };
 
-    const handleApproveForPOS = () => {
-        setPrescriptions(prescriptions.map(p =>
-            p.id === selectedAIRx.id ? {
-                ...p,
-                status: 'Approved for POS',
+    const handleApproveForPOS = async () => {
+        try {
+            let medIds = [];
+            let medNames = [];
+            let medQts = [];
+            let medDosages = [];
+
+            extractedData.medicines.forEach(item => {
+                medIds.push('null');
+                medNames.push(item.name || 'Unknown');
+                medQts.push(1);
+                medDosages.push(item.dosage || '-');
+            });
+
+            const defaultPatient = patients.find(p => p.name?.toLowerCase().includes('walk-in') || p.customerName?.toLowerCase().includes('walk-in')) || patients[0];
+            const defaultPatientId = defaultPatient ? defaultPatient.id : 1;
+
+            const payload = {
+                patientId: defaultPatientId,
                 patientName: extractedData.patient,
-                doctorName: extractedData.doctor
-            } : p
-        ));
-        setShowVerifyModal(false);
-        toast.success(`RX-${String(selectedAIRx.id).padStart(4, '0')} Verified and Sent to POS successfully!`, { icon: '✅' });
+                doctorName: extractedData.doctor,
+                prescriptionDate: new Date().toISOString().split('T')[0],
+                status: 'Pending',
+                medicineIds: medIds.join(','),
+                medicineNames: medNames.join(','),
+                quantities: medQts.join(','),
+                dosageInstructions: medDosages.join(' || '),
+                digitalCopyUrl: selectedAIRx.imageUrl
+            };
+
+            await axios.post('http://localhost:5000/api/prescriptions', payload);
+            setPrescriptions(prescriptions.filter(p => p.id !== selectedAIRx.id));
+            setShowVerifyModal(false);
+            toast.success(`Verified! Prescription added to system. POS can now process it.`, { icon: '✅' });
+            fetchPrescriptions();
+
+        } catch (err) {
+            toast.error("Failed to approve and save to database.");
+            console.error(err);
+        }
     };
+
+    const getStartDate = () => {
+        const d = new Date();
+        d.setHours(0, 0, 0, 0);
+        switch (dateRange) {
+            case 'today': return d;
+            case '7days': return new Date(d.setDate(d.getDate() - 7));
+            case '30days': return new Date(d.setDate(d.getDate() - 30));
+            case 'all': return new Date(0);
+            default: return d;
+        }
+    };
+
+    const startDate = getStartDate();
 
     const filteredPrescriptions = prescriptions.filter(rx => {
         const pName = (rx.patientName || rx.patient?.name || '').toLowerCase();
@@ -447,9 +565,8 @@ export default function CashierPrescriptionsPage() {
                                 >
                                     <option value="All">All Statuses</option>
                                     <option value="Pending">Pending</option>
-                                    <option value="Pending Verification">Pending Verification (AI)</option>
-                                    <option value="Approved for POS">Approved for POS</option>
                                     <option value="Dispensed">Dispensed</option>
+                                    <option value="Voided">Voided</option>
                                 </select>
                             </div>
                         </div>
@@ -474,7 +591,7 @@ export default function CashierPrescriptionsPage() {
                                 ) : (
                                     filteredPrescriptions.map((rx) => (
                                         <tr key={rx.id} className="group hover:bg-white/20 transition-colors border-b border-white/20 last:border-0">
-                                            <td className="py-4 align-top pt-5 font-mono text-[13px] font-bold text-indigo-700">
+                                            <td className="py-4 align-top pt-5 font-bold text-[13px] text-indigo-700">
                                                 RX-{String(rx.id).padStart(4, '0')}
                                             </td>
                                             <td className="py-4 align-top pt-5 text-[13px] font-medium text-slate-600">
@@ -493,49 +610,34 @@ export default function CashierPrescriptionsPage() {
                                                 </div>
                                             </td>
                                             <td className="py-4 align-top pt-5 text-[13px] font-medium text-slate-600">
-                                                {rx.doctorName ? `Dr. ${rx.doctorName}` : (rx.doctor?.name ? `Dr. ${rx.doctor.name}` : 'Unknown Doctor')}
+                                                Dr. {rx.doctorName || rx.doctor?.name || 'Unknown'}
                                             </td>
                                             <td className="py-4 align-top pt-5">
-                                                {rx.status === 'Pending Verification' ? (
-                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-fuchsia-100/50 border border-fuchsia-200/50 text-fuchsia-700 rounded-lg text-[11px] font-bold backdrop-blur-sm shadow-sm">
-                                                        <Sparkles size={14} /> Verify (AI)
-                                                    </span>
-                                                ) : rx.status === 'Approved for POS' ? (
-                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-100/50 border border-blue-200/50 text-blue-700 rounded-lg text-[11px] font-bold backdrop-blur-sm shadow-sm">
-                                                        <FileCheck size={14} /> Approved
-                                                    </span>
-                                                ) : rx.status === 'Pending' ? (
-                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-100/50 border border-amber-200/50 text-amber-700 rounded-lg text-[11px] font-bold backdrop-blur-sm shadow-sm">
+                                                {rx.status === 'Pending' ? (
+                                                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-amber-100/50 border border-amber-200/50 text-amber-700 rounded-full text-[12px] font-bold shadow-sm">
                                                         <Clock size={14} /> Pending
                                                     </span>
-                                                ) : (
-                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-100/50 border border-emerald-200/50 text-emerald-700 rounded-lg text-[11px] font-bold backdrop-blur-sm shadow-sm">
+                                                ) : rx.status === 'Dispensed' ? (
+                                                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-100/50 border border-emerald-200/50 text-emerald-700 rounded-full text-[12px] font-bold shadow-sm">
                                                         <CheckCircle size={14} /> Dispensed
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-slate-100/50 border border-slate-200/50 text-slate-700 rounded-full text-[12px] font-bold shadow-sm">
+                                                        {rx.status}
                                                     </span>
                                                 )}
                                             </td>
 
                                             <td className="py-4 align-top pt-4 text-right">
-                                                <div className="flex justify-end gap-2">
-                                                    {rx.status === 'Pending Verification' ? (
-                                                        <button
-                                                            onClick={() => openVerification(rx)}
-                                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-fuchsia-50/80 text-fuchsia-600 rounded-lg text-[11px] font-bold uppercase tracking-wider hover:bg-fuchsia-100 transition-colors border border-fuchsia-100 cursor-pointer shadow-sm backdrop-blur-sm"
-                                                        >
-                                                            <Sparkles size={14} /> Verify Data
-                                                        </button>
-                                                    ) : (
-                                                        <>
-                                                            <button onClick={() => setSelectedRx(rx)} className="p-1.5 text-slate-500 hover:text-indigo-700 hover:bg-indigo-100/50 rounded-lg transition-colors cursor-pointer" title="View Details">
-                                                                <Eye size={16} />
-                                                            </button>
-                                                            <button onClick={() => openEditModal(rx)} className="p-1.5 text-slate-500 hover:text-sky-700 hover:bg-sky-100/50 rounded-lg transition-colors cursor-pointer" title="Edit Prescription">
-                                                                <Edit size={16} />
-                                                            </button>
-                                                        </>
-                                                    )}
-                                                    <button onClick={() => handleDelete(rx.id)} className="p-1.5 text-slate-500 hover:text-rose-700 hover:bg-rose-100/50 rounded-lg transition-colors cursor-pointer" title="Delete/Remove">
-                                                        <Trash2 size={16} />
+                                                <div className="flex justify-end gap-3">
+                                                    <button onClick={() => setSelectedRx(rx)} className="text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer" title="View Details">
+                                                        <Eye size={18} />
+                                                    </button>
+                                                    <button onClick={() => openEditModal(rx)} className="text-slate-400 hover:text-sky-600 transition-colors cursor-pointer" title="Edit Prescription">
+                                                        <Edit size={18} />
+                                                    </button>
+                                                    <button onClick={() => handleDelete(rx.id)} className="text-slate-400 hover:text-rose-600 transition-colors cursor-pointer" title="Delete/Remove">
+                                                        <Trash2 size={18} />
                                                     </button>
                                                 </div>
                                             </td>
@@ -562,16 +664,22 @@ export default function CashierPrescriptionsPage() {
 
                         <h2 className="text-[20px] font-bold text-slate-800 mb-2">AI Prescription Scanner</h2>
                         <p className="text-[13px] text-slate-500 font-medium mb-8">
-                            Upload a photo of the prescription. AI will extract patient, doctor, and medicine details to reduce manual data entry errors.
+                            Upload a photo of the prescription. AI will extract patient, doctor, and medicine details and immediately save it as Pending.
                         </p>
 
                         {!isScanning ? (
-                            <form onSubmit={handleFileUpload}>
-                                <label className="border-2 border-dashed border-indigo-200 bg-indigo-50/30 hover:bg-indigo-50/80 transition-colors rounded-3xl p-10 flex flex-col items-center justify-center cursor-pointer mb-6 group shadow-inner">
-                                    <UploadCloud className="w-10 h-10 text-indigo-400 group-hover:text-indigo-600 transition-colors mb-3" />
-                                    <span className="text-[14px] font-bold text-indigo-700">Click to upload or drag image</span>
-                                    <span className="text-[12px] font-medium text-slate-400 mt-1">Supports JPG, PNG, PDF</span>
-                                    <input type="file" className="hidden" accept="image/*,.pdf" />
+                            <form onSubmit={handleAIFileUpload}>
+                                <label className={`border-2 border-dashed ${imagePreviewUrl ? 'border-indigo-400 p-2' : 'border-indigo-200 p-10 bg-indigo-50/30'} hover:bg-indigo-50/80 transition-colors rounded-3xl flex flex-col items-center justify-center cursor-pointer mb-6 group shadow-inner relative overflow-hidden h-[200px]`}>
+                                    {imagePreviewUrl ? (
+                                        <img src={imagePreviewUrl} alt="Preview" className="w-full h-full object-contain rounded-2xl" />
+                                    ) : (
+                                        <>
+                                            <UploadCloud className="w-10 h-10 text-indigo-400 group-hover:text-indigo-600 transition-colors mb-3" />
+                                            <span className="text-[14px] font-bold text-indigo-700">Click to upload or drag image</span>
+                                            <span className="text-[12px] font-medium text-slate-400 mt-1">Supports JPG, PNG, PDF</span>
+                                        </>
+                                    )}
+                                    <input type="file" className="hidden" accept="image/*,.pdf" onChange={handleFileChange}/>
                                 </label>
                                 <button type="submit" className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold rounded-2xl shadow-[0_8px_20px_-6px_rgba(79,70,229,0.4)] transition-all py-3.5 text-[14px] hover:shadow-[0_8px_20px_-6px_rgba(79,70,229,0.6)] cursor-pointer">
                                     Start Document Scan
@@ -581,101 +689,9 @@ export default function CashierPrescriptionsPage() {
                             <div className="py-12 flex flex-col items-center">
                                 <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
                                 <p className="text-[15px] font-bold text-slate-700">AI is analyzing handwriting...</p>
-                                <p className="text-[12px] text-slate-400 font-medium mt-2">Checking dosage & compliance records</p>
+                                <p className="text-[12px] text-slate-400 font-medium mt-2">Extracting medical details and saving to database.</p>
                             </div>
                         )}
-                    </div>
-                </div>,
-                document.body
-            )}
-
-            {showVerifyModal && selectedAIRx && createPortal(
-                <div className="fixed inset-0 bg-black/40 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
-                    <div className="bg-white/95 backdrop-blur-2xl rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[900px] flex flex-col overflow-hidden max-h-[90vh] hide-scrollbar">
-
-                        <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center bg-indigo-50/50">
-                            <div>
-                                <h2 className="text-[18px] font-bold text-slate-800 flex items-center gap-2.5">
-                                    <ShieldAlert className="w-5 h-5 text-indigo-600"/> Pharmacist Clinical Verification
-                                </h2>
-                                <p className="text-[12px] text-slate-500 font-medium mt-0.5">
-                                    Verify AI extracted data against the original document to ensure legal compliance.
-                                </p>
-                            </div>
-                            <button onClick={() => setShowVerifyModal(false)} className="hover:bg-slate-200 p-2 rounded-full transition-colors cursor-pointer">
-                                <X className="w-5 h-5 text-slate-500" />
-                            </button>
-                        </div>
-
-                        <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
-                            <div className="md:w-1/2 bg-slate-50 border-r border-slate-200 p-6 flex flex-col">
-                                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                                    <ImageIcon size={14}/> Original Document
-                                </p>
-                                <div className="flex-1 bg-white rounded-2xl border border-slate-200 overflow-hidden flex items-center justify-center relative shadow-sm">
-                                    <img src={selectedAIRx.imageUrl} alt="Prescription" className="w-full h-full object-cover opacity-80" />
-                                    <div className="absolute bottom-4 left-4 right-4 bg-black/70 backdrop-blur-md text-white text-[11px] font-bold p-3 rounded-xl flex items-start gap-2 border border-white/10 shadow-lg">
-                                        <AlertTriangle size={16} className="text-amber-400 flex-shrink-0"/>
-                                        Ensure doctor's signature and date are valid before approving this draft.
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="md:w-1/2 p-6 overflow-y-auto bg-white/50 hide-scrollbar">
-                                <p className="text-[11px] font-bold text-indigo-600 uppercase tracking-wider mb-4 flex items-center gap-1.5">
-                                    <FileText size={14}/> AI Extracted Data
-                                </p>
-
-                                <div className="space-y-4 mb-6">
-                                    <div>
-                                        <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Patient Name</label>
-                                        <input type="text" className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[13px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/30 shadow-sm" value={extractedData.patient} onChange={(e) => setExtractedData({...extractedData, patient: e.target.value})} />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Doctor Name</label>
-                                        <input type="text" className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[13px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/30 shadow-sm" value={extractedData.doctor} onChange={(e) => setExtractedData({...extractedData, doctor: e.target.value})} />
-                                    </div>
-                                </div>
-
-                                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                                    <Pill size={14} className="text-indigo-500"/> Prescribed Medicines
-                                </p>
-                                <div className="space-y-3 mb-6">
-                                    {extractedData.medicines.map((med, idx) => (
-                                        <div key={idx} className={`p-4 rounded-xl border shadow-sm transition-colors ${med.isControlled ? 'bg-rose-50/50 border-rose-200' : 'bg-white border-slate-200'}`}>
-                                            <div className="flex justify-between items-start mb-2">
-                                                <input type="text" className="bg-transparent font-bold text-[13px] text-slate-800 outline-none w-full border-b border-transparent focus:border-slate-300" value={med.name} onChange={(e) => {
-                                                    const newMeds = [...extractedData.medicines];
-                                                    newMeds[idx].name = e.target.value;
-                                                    setExtractedData({...extractedData, medicines: newMeds});
-                                                }}/>
-                                                {med.isControlled && <span className="bg-rose-100 text-rose-700 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded flex items-center gap-1"><ShieldAlert size={10}/> Controlled</span>}
-                                            </div>
-                                            <input type="text" className="bg-transparent font-medium text-[12px] text-slate-500 outline-none w-full border-b border-transparent focus:border-slate-300" value={med.dosage} onChange={(e) => {
-                                                const newMeds = [...extractedData.medicines];
-                                                newMeds[idx].dosage = e.target.value;
-                                                setExtractedData({...extractedData, medicines: newMeds});
-                                            }}/>
-                                        </div>
-                                    ))}
-                                    <button className="text-[12px] font-bold text-indigo-600 flex items-center gap-1 hover:text-indigo-800 transition-colors cursor-pointer">
-                                        <Plus size={14}/> Add missed item
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="px-8 py-5 border-t border-slate-100 bg-white flex justify-end gap-3 shrink-0">
-                            <button onClick={() => setShowVerifyModal(false)} className="px-6 py-2.5 bg-slate-50 text-slate-600 font-bold border border-slate-200 rounded-xl hover:bg-slate-100 transition-all cursor-pointer text-[13px]">
-                                Save as Draft
-                            </button>
-                            <button
-                                onClick={handleApproveForPOS}
-                                className="px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-[0_8px_20px_-6px_rgba(79,70,229,0.4)] transition-all text-[13px] hover:bg-indigo-700 cursor-pointer flex items-center gap-2"
-                            >
-                                <CheckCircle size={16}/> Approve & Send to POS
-                            </button>
-                        </div>
                     </div>
                 </div>,
                 document.body
@@ -905,6 +921,18 @@ export default function CashierPrescriptionsPage() {
                             </div>
 
                             <div className="space-y-6 text-sm font-medium text-slate-700">
+
+                                {selectedRx.digitalCopyUrl && (
+                                    <div className="mb-6 p-4 border border-indigo-100 bg-indigo-50/30 rounded-2xl print:hidden">
+                                        <p className="text-[11px] font-bold text-indigo-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                            <ImageIcon size={14}/> Original Uploaded Document
+                                        </p>
+                                        <div className="w-full h-48 overflow-hidden rounded-xl bg-white border border-white/80">
+                                            <img src={selectedRx.digitalCopyUrl} alt="Original Prescription" className="w-full h-full object-contain" />
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="p-4 bg-white/60 rounded-2xl border border-white/80 shadow-sm print:border-none print:bg-transparent print:p-0 print:shadow-none">
                                         <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">RX Number</p>
@@ -912,7 +940,7 @@ export default function CashierPrescriptionsPage() {
                                     </div>
                                     <div className="p-4 bg-white/60 rounded-2xl border border-white/80 shadow-sm print:border-none print:bg-transparent print:p-0 print:shadow-none">
                                         <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Status</p>
-                                        <p className="font-bold text-slate-800">{selectedRx.status}</p>
+                                        <p className={`font-bold ${selectedRx.status === 'Dispensed' ? 'text-emerald-600' : 'text-amber-600'}`}>{selectedRx.status}</p>
                                     </div>
                                 </div>
 
