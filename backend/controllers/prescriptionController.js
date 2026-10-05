@@ -1,7 +1,5 @@
 const Prescription = require('../models/Prescription');
-const PrescriptionItem = require('../models/PrescriptionItem');
 const Customer = require('../models/Customer');
-const Doctor = require('../models/Doctor');
 const Medicine = require('../models/Medicine');
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -9,18 +7,41 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 exports.getAllPrescriptions = async (req, res) => {
     try {
-        const prescriptions = await Prescription.findAll({
+        const prescriptionsRaw = await Prescription.findAll({
             include: [
-                { model: Customer, as: 'patient' },
-                { model: Doctor, as: 'doctor' },
-                {
-                    model: PrescriptionItem,
-                    as: 'items',
-                    include: [{ model: Medicine, as: 'medicine' }]
-                }
+                { model: Customer, as: 'patient' }
             ],
             order: [['createdAt', 'DESC']]
         });
+
+        const prescriptions = prescriptionsRaw.map(rx => {
+            const rxData = rx.toJSON();
+
+            if (rxData.medicineNames) {
+                const ids = rxData.medicineIds ? rxData.medicineIds.split(',') : [];
+                const names = rxData.medicineNames.split(',');
+                const qts = rxData.quantities ? rxData.quantities.split(',') : [];
+                const dosages = rxData.dosageInstructions ? rxData.dosageInstructions.split(' || ') : [];
+
+                const items = [];
+                for (let i = 0; i < names.length; i++) {
+                    if (names[i].trim() !== '') {
+                        items.push({
+                            medicineId: ids[i] && ids[i] !== 'null' ? parseInt(ids[i]) : null,
+                            medicineName: names[i].trim(),
+                            quantity: qts[i] ? parseInt(qts[i]) : 1,
+                            dosageInstructions: dosages[i] ? dosages[i].trim() : ''
+                        });
+                    }
+                }
+                rxData.prescribedMedicines = items;
+            } else {
+                rxData.prescribedMedicines = [];
+            }
+
+            return rxData;
+        });
+
         res.status(200).json(prescriptions);
     } catch (err) {
         console.error('Error fetching prescriptions:', err);
@@ -30,27 +51,58 @@ exports.getAllPrescriptions = async (req, res) => {
 
 exports.createPrescription = async (req, res) => {
     try {
-        const { patientId, doctorId, prescriptionDate, status, digitalCopyUrl, notes, items } = req.body;
+        const {
+            patientId,
+            patientName,
+            patientNic,
+            patientAge,
+            patientGender,
+            patientContactNumber,
+            doctorName,
+            doctorSpecialization,
+            doctorContactNumber,
+            prescriptionDate,
+            status,
+            digitalCopyUrl,
+            notes,
+            items
+        } = req.body;
+
+        let medIds = [];
+        let medNames = [];
+        let medQts = [];
+        let medDosages = [];
+
+        if (items && items.length > 0) {
+            items.forEach(item => {
+                medIds.push(item.medicineId || 'null');
+                medNames.push(item.medicineName || 'Unknown');
+                medQts.push(item.quantity || 1);
+                medDosages.push(item.dosageInstructions || '-');
+            });
+        }
 
         const prescription = await Prescription.create({
             patientId,
-            doctorId,
+            patientName,
+            patientNic,
+            patientAge,
+            patientGender,
+            patientContactNumber,
+            doctorName,
+            doctorSpecialization,
+            doctorContactNumber,
+
+            medicineIds: medIds.join(','),
+            medicineNames: medNames.join(','),
+            quantities: medQts.join(','),
+            dosageInstructions: medDosages.join(' || '),
+
             prescriptionDate,
             status: status || 'Pending',
             digitalCopyUrl,
             notes
         });
-
-        if (items && items.length > 0) {
-            const itemsToCreate = items.map(item => ({
-                prescriptionId: prescription.id,
-                medicineId: item.medicineId,
-                quantity: item.quantity,
-                dosageInstructions: item.dosageInstructions
-            }));
-
-            await PrescriptionItem.bulkCreate(itemsToCreate);
-        }
 
         res.status(201).json(prescription);
     } catch (err) {
@@ -66,20 +118,28 @@ exports.updatePrescription = async (req, res) => {
             return res.status(404).json({ error: 'Prescription not found' });
         }
 
-        await prescription.update(req.body);
+        const updateData = { ...req.body };
 
-        if (req.body.items && req.body.items.length > 0) {
-            await PrescriptionItem.destroy({ where: { prescriptionId: prescription.id } });
+        if (req.body.items) {
+            let medIds = [];
+            let medNames = [];
+            let medQts = [];
+            let medDosages = [];
 
-            const itemsToCreate = req.body.items.map(item => ({
-                prescriptionId: prescription.id,
-                medicineId: item.medicineId,
-                quantity: item.quantity,
-                dosageInstructions: item.dosageInstructions
-            }));
+            req.body.items.forEach(item => {
+                medIds.push(item.medicineId || 'null');
+                medNames.push(item.medicineName || 'Unknown');
+                medQts.push(item.quantity || 1);
+                medDosages.push(item.dosageInstructions || '-');
+            });
 
-            await PrescriptionItem.bulkCreate(itemsToCreate);
+            updateData.medicineIds = medIds.join(',');
+            updateData.medicineNames = medNames.join(',');
+            updateData.quantities = medQts.join(',');
+            updateData.dosageInstructions = medDosages.join(' || ');
         }
+
+        await prescription.update(updateData);
 
         res.status(200).json(prescription);
     } catch (err) {
