@@ -64,9 +64,10 @@ exports.createPrescription = async (req, res) => {
             prescriptionDate,
             status,
             digitalCopyUrl,
-            notes,
-            items
+            notes
         } = req.body;
+
+        const items = req.body.items || req.body.medicines || [];
 
         let medIds = [];
         let medNames = [];
@@ -76,9 +77,9 @@ exports.createPrescription = async (req, res) => {
         if (items && items.length > 0) {
             items.forEach(item => {
                 medIds.push(item.medicineId || 'null');
-                medNames.push(item.medicineName || 'Unknown');
+                medNames.push(item.medicineName || item.name || 'Unknown');
                 medQts.push(item.quantity || 1);
-                medDosages.push(item.dosageInstructions || '-');
+                medDosages.push(item.dosageInstructions || item.dosage || '-');
             });
         }
 
