@@ -210,37 +210,34 @@ export default function CashierDashboard() {
                         </div>
                     </div>
 
-                    <div className="relative w-full bg-white/60 backdrop-blur-2xl rounded-[28px] border border-white/80 shadow-[0_12px_40px_-12px_rgba(148,163,184,0.45)] p-8 md:p-10 overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6 hover:bg-white/70 transition-colors duration-500">
+                    <div className="relative w-full bg-gradient-to-r from-[#f0fdf4] via-white to-white rounded-[28px] border border-white shadow-[0_4px_24px_-8px_rgba(148,163,184,0.2)] p-8 overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6 transition-colors duration-500">
 
-                        <div className="absolute top-0 right-0 w-[55%] h-full pointer-events-none opacity-90"
+                        <div className="absolute top-0 right-0 w-[60%] h-full pointer-events-none"
                              style={{
                                  backgroundImage: "url('https://images.unsplash.com/photo-1518837695005-2083093ee35b?auto=format&fit=crop&q=80&w=1200')",
                                  backgroundSize: 'cover',
                                  backgroundPosition: 'center',
-                                 maskImage: 'linear-gradient(to right, transparent, black 60%)',
-                                 WebkitMaskImage: 'linear-gradient(to right, transparent, black 60%)'
+                                 maskImage: 'linear-gradient(to right, transparent 0%, black 50%)',
+                                 WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 50%)'
                              }}>
                         </div>
 
-                        <div className="absolute top-0 right-0 -mr-20 -mt-20 w-64 h-64 rounded-full bg-blue-200/20 blur-[50px] pointer-events-none"></div>
-                        <div className="absolute bottom-0 left-0 -ml-10 -mb-10 w-48 h-48 rounded-full bg-emerald-200/20 blur-[40px] pointer-events-none"></div>
-
-                        <div className="relative z-10 flex flex-col gap-2.5">
-                            <h2 className="text-2xl md:text-[28px] font-bold text-slate-800 tracking-tight">
+                        <div className="relative z-10 flex flex-col gap-1.5 max-w-[60%] pl-2">
+                            <h2 className="text-[24px] font-bold text-[#1e293b] tracking-tight flex items-center gap-2">
                                 Ready for a great shift? 👋
                             </h2>
-                            <p className="text-slate-500 font-medium text-[14px] max-w-md leading-relaxed">
+                            <p className="text-slate-500 font-medium text-[13px] max-w-md leading-relaxed">
                                 Your terminal is perfectly synced and online. Keep up the great work and let's make today a productive day.
                             </p>
                         </div>
 
-                        <div className="relative z-10 flex items-center gap-4 bg-white/85 backdrop-blur-md px-6 py-4 rounded-[22px] border border-white shadow-sm shrink-0">
-                            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-emerald-100/60 border border-emerald-200/50 text-emerald-600 shadow-inner">
-                                <CheckCircle size={24} strokeWidth={2.5} />
+                        <div className="relative z-10 flex items-center gap-3.5 bg-white/95 backdrop-blur-md px-5 py-3 rounded-[20px] shadow-[0_8px_24px_rgba(0,0,0,0.08)] border border-white/60 shrink-0 mr-4">
+                            <div className="flex items-center justify-center w-[42px] h-[42px] rounded-[14px] bg-emerald-50 text-emerald-600 border border-emerald-100 shadow-inner">
+                                <CheckCircle size={22} strokeWidth={2.5} />
                             </div>
                             <div className="flex flex-col">
-                                <span className="font-bold text-slate-800 text-[15px] tracking-tight">Register Open</span>
-                                <span className="flex items-center gap-1.5 text-[12px] text-slate-500 font-semibold mt-0.5">
+                                <span className="font-bold text-[#1e293b] text-[14px] tracking-tight leading-tight">Register Open</span>
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-500 font-semibold mt-0.5">
                                     <span className="relative flex h-2 w-2">
                                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                                         <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
