@@ -30,6 +30,7 @@ import io from 'socket.io-client';
 import profileImg from '../../assets/profile.png';
 import logoImage from '../../assets/logo.png';
 
+// Chatbot import එක
 import TrackingChatbot from '../chatbot/TrackingChatbot';
 
 const ADMIN_LINKS = [
@@ -170,13 +171,13 @@ export default function AdminLayout({ children }) {
             `}</style>
 
             <aside
-                className={`relative my-4 ml-4 h-[calc(100vh-32px)] bg-white rounded-[32px] border border-slate-200 transition-all duration-300 ease-in-out flex flex-col flex-shrink-0 z-40 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] ${
+                className={`relative my-4 ml-4 h-[calc(100vh-32px)] bg-[#343638] rounded-[32px] border border-white/10 transition-all duration-300 ease-in-out flex flex-col flex-shrink-0 z-40 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] ${
                     isCollapsed ? 'w-24' : 'w-72'
                 }`}
             >
                 <button
                     onClick={() => setIsCollapsed(!isCollapsed)}
-                    className="absolute -right-3.5 top-10 bg-white border border-slate-200 rounded-full p-1.5 shadow-sm hover:bg-slate-50 transition-all z-50 hover:scale-110 cursor-pointer flex items-center justify-center text-slate-400 hover:text-sky-600"
+                    className="absolute -right-3.5 top-10 bg-[#414345] border border-white/10 rounded-full p-1.5 shadow-sm hover:bg-white/5 transition-all z-50 hover:scale-110 cursor-pointer flex items-center justify-center text-slate-200 hover:text-white"
                 >
                     {isCollapsed ? <ChevronRight size={18} strokeWidth={2.5} /> : <ChevronLeft size={18} strokeWidth={2.5} />}
                 </button>
@@ -189,10 +190,10 @@ export default function AdminLayout({ children }) {
 
                             <div className="flex flex-col">
                                 <div className="flex items-baseline gap-1.5 pb-0.5">
-                                    <span className="text-[22px] font-bold text-slate-700 tracking-tight">Kegalle</span>
-                                    <span className="text-[22px] font-black bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent tracking-tight pr-1 pb-1">Ph4Life</span>
+                                    <span className="text-[22px] font-bold text-white tracking-tight">Kegalle</span>
+                                    <span className="text-[22px] font-black bg-gradient-to-r from-purple-300 to-pink-300 bg-clip-text text-transparent tracking-tight pr-1 pb-1">Ph4Life</span>
                                 </div>
-                                <p className="text-[10px] font-bold text-sky-500 uppercase tracking-[0.15em] ml-0.5">Pharmacy System</p>
+                                <p className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.15em] ml-0.5">Pharmacy System</p>
                             </div>
                         </div>
                     )}
@@ -216,8 +217,8 @@ export default function AdminLayout({ children }) {
                             className={({ isActive }) =>
                                 `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3.5 px-5'} py-3.5 rounded-2xl text-[14px] font-bold transition-all duration-200 group ${
                                     isActive
-                                        ? 'bg-sky-50 text-sky-700 shadow-sm border border-sky-100/50'
-                                        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 border border-transparent'
+                                        ? 'bg-transparent text-sky-200 shadow-[inset_3px_0_0_0_#7dd3fc] border border-transparent'
+                                        : 'text-slate-200 hover:bg-white/5 hover:text-white border border-transparent'
                                 }`
                             }
                         >
@@ -229,11 +230,11 @@ export default function AdminLayout({ children }) {
                     ))}
                 </nav>
 
-                <div className="p-4 mt-auto border-t border-slate-100 flex flex-col gap-2">
+                <div className="p-4 mt-auto border-t border-white/10 flex flex-col gap-2">
                     <button
                         onClick={logout}
                         title="Logout"
-                        className={`flex items-center justify-center gap-2 w-full py-3 bg-rose-50 text-rose-600 rounded-2xl hover:bg-rose-100 hover:text-rose-700 transition-colors font-bold text-[14px] cursor-pointer border border-rose-100/50 ${isCollapsed ? 'px-0' : 'px-4'}`}
+                        className={`flex items-center justify-center gap-2 w-full py-3 bg-transparent text-rose-200 rounded-2xl hover:bg-white/5 hover:text-rose-100 transition-colors font-bold text-[14px] cursor-pointer border border-transparent ${isCollapsed ? 'px-0' : 'px-4'}`}
                     >
                         <LogOut size={18} strokeWidth={2.5} />
                         {!isCollapsed && <span>Logout</span>}
