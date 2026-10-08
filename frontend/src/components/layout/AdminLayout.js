@@ -30,6 +30,8 @@ import io from 'socket.io-client';
 import profileImg from '../../assets/profile.png';
 import logoImage from '../../assets/logo.png';
 
+import TrackingChatbot from '../chatbot/TrackingChatbot';
+
 const ADMIN_LINKS = [
     { to: '/admin', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/admin/suppliers', label: 'Suppliers', icon: Truck },
@@ -430,6 +432,10 @@ export default function AdminLayout({ children }) {
 
                 </div>
             </aside>
+
+            <div className="fixed bottom-8 right-8 z-[9999]">
+                <TrackingChatbot />
+            </div>
 
         </div>
     );
