@@ -5,7 +5,7 @@ import {
     Truck, LogOut, Package, DollarSign, Clock, CheckCircle,
     Building2, Mail, LayoutDashboard, Receipt, CreditCard,
     Box, UserCircle, ChevronRight, ChevronLeft, Calendar, AlertCircle,
-    Search, MapPin, Phone, Banknote, Eye, X, FileText, Bell, User, AlertTriangle, ArrowRightLeft, Archive, Download
+    Search, MapPin, Phone, Banknote, Eye, X, FileText, Bell, User, AlertTriangle, ArrowRightLeft, Archive, Download, PackagePlus
 } from 'lucide-react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -44,6 +44,11 @@ export default function SupplierDashboard() {
     const [rejectionReason, setRejectionReason] = useState('');
     const [showRejectInput, setShowRejectInput] = useState(false);
 
+    const [viewingRequest, setViewingRequest] = useState(null);
+    const [showRequestReject, setShowRequestReject] = useState(false);
+    const [requestRejectReason, setRequestRejectReason] = useState('');
+    const [processingRequest, setProcessingRequest] = useState(false);
+
     const navRef = useRef(null);
 
     useLayoutEffect(() => {
@@ -68,31 +73,60 @@ export default function SupplierDashboard() {
             try {
                 const token = localStorage.getItem('token');
                 if (token) {
-                    const res = await axios.get('http://localhost:5000/api/notifications', {
-                        headers: { Authorization: `Bearer ${token}` }
+                    const config = { headers: { Authorization: `Bearer ${token}` } };
+                    const [existing, linked] = await Promise.all([
+                        axios.get('http://localhost:5000/api/notifications', config)
+                            .catch(() => axios.get('http://localhost:5000/api/notifications/unread', config))
+                            .catch(() => ({ data: [] })),
+                        axios.get('http://localhost:5000/api/notifications/restock-requests', config)
+                    ]);
+                    const merged = new Map((existing.data || []).map(n => [String(n.id), n]));
+                    (linked.data || []).forEach(n => merged.set(String(n.id), n));
+                    const res = { data: [...merged.values()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)) };
+
+                    const myNotifs = res.data.filter(n =>
+                        (n.target === 'supplier' && (!n.supplierId || String(n.supplierId) === String(mySupplierId))) ||
+                        (n.title && n.title.includes(`[SUP:${mySupplierId}]`))
+                    ).map(n => {
+                        if (n.title && n.title.includes(`[SUP:${mySupplierId}]`)) {
+                            return { ...n, title: n.title.replace(`[SUP:${mySupplierId}] `, '') };
+                        }
+                        return n;
                     });
-                    const myNotifs = res.data.filter(n => n.target === 'supplier' && (!n.supplierId || String(n.supplierId) === String(mySupplierId)));
+
                     setNotifications(myNotifs);
-                    setUnreadCount(myNotifs.length);
+                    setUnreadCount(myNotifs.filter(n => !n.isRead && (!n.status || n.status === 'Pending')).length);
                 }
             } catch (err) {
                 console.error("Failed to load notifications", err);
             }
         };
         if (mySupplierId) fetchNotifs();
+        const refreshRestocks = data => {
+            if (!data || String(data.supplierId) === String(mySupplierId)) fetchNotifs();
+        };
+        const refreshOnFocus = () => fetchNotifs();
+        socket.on('restock_updated', refreshRestocks);
+        socket.on('connect', refreshOnFocus);
+        window.addEventListener('focus', refreshOnFocus);
 
         socket.on('receive_notification', (data) => {
             if (data.target === 'supplier' && (!data.supplierId || String(data.supplierId) === String(mySupplierId))) {
-                setNotifications((prev) => [data, ...prev]);
+                setNotifications((prev) => {
+                    const exists = prev.find(n => n.id === data.id);
+                    if (exists) return prev;
+                    return [data, ...prev];
+                });
+
                 setUnreadCount((prev) => prev + 1);
 
-                if (data.type === 'warning' || data.title.includes('Return') || data.title.includes('Low Stock')) {
+                if (data.type === 'warning' || data.type === 'info' || data.title?.includes('Return') || data.title?.includes('Low Stock') || data.title?.includes('Refill') || data.title?.includes('Request')) {
                     toast.custom((t) => (
                         <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-sm w-full bg-white shadow-lg rounded-2xl pointer-events-auto flex ring-1 ring-black/5`}>
                             <div className="flex-1 w-0 p-4">
                                 <div className="flex items-start">
                                     <div className="flex-shrink-0 pt-0.5">
-                                        <Bell className="h-10 w-10 text-blue-500" />
+                                        {data.title?.includes('Refill') || data.title?.includes('Request') ? <PackagePlus className="h-10 w-10 text-emerald-500" /> : <Bell className="h-10 w-10 text-blue-500" />}
                                     </div>
                                     <div className="ml-3 flex-1">
                                         <p className="text-[14px] font-bold text-slate-800">{data.title}</p>
@@ -108,6 +142,9 @@ export default function SupplierDashboard() {
 
         return () => {
             socket.off('receive_notification');
+            socket.off('restock_updated', refreshRestocks);
+            socket.off('connect', refreshOnFocus);
+            window.removeEventListener('focus', refreshOnFocus);
         };
     }, [mySupplierId]);
 
@@ -158,6 +195,35 @@ export default function SupplierDashboard() {
         }
     };
 
+    const handleLinkedRestock = async (action) => {
+        if (processingRequest) return;
+        if (action === 'reject' && !requestRejectReason.trim()) {
+            return toast.error('Please enter a rejection reason.');
+        }
+        setProcessingRequest(true);
+        try {
+            await axios.put(
+                `http://localhost:5000/api/notifications/restock-requests/${viewingRequest.restockId}/${action}`,
+                action === 'reject' ? { reason: requestRejectReason.trim() } : {},
+                { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+            );
+            const status = action === 'accept' ? 'Accepted' : 'Rejected';
+            setNotifications(prev => prev.map(n => n.id === viewingRequest.id
+                ? { ...n, status, isRead: true, rejectReason: action === 'reject' ? requestRejectReason.trim() : null }
+                : n));
+            setUnreadCount(prev => Math.max(0, prev - 1));
+            setViewingRequest(null);
+            setShowRequestReject(false);
+            setRequestRejectReason('');
+            toast.success(action === 'accept' ? 'Stock and selected invoice updated.' : 'Stock request rejected.');
+            await fetchPortalData();
+        } catch (error) {
+            toast.error(error.response?.data?.error || 'Failed to process stock request.');
+        } finally {
+            setProcessingRequest(false);
+        }
+    };
+
     const handleAcceptPayment = async (paymentId) => {
         if (!window.confirm("Are you sure you want to accept this payment? This will update your current outstanding balance.")) return;
 
@@ -165,9 +231,7 @@ export default function SupplierDashboard() {
         try {
             const token = localStorage.getItem('token');
             const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
-
             await axios.put(`http://localhost:5000/api/supplier-payments/${paymentId}/accept`, {}, config);
-
             toast.success("Payment Accepted! Outstanding balance updated. 🎉");
             setViewingReceipt(null);
             fetchPortalData();
@@ -189,9 +253,7 @@ export default function SupplierDashboard() {
         try {
             const token = localStorage.getItem('token');
             const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
-
             await axios.put(`http://localhost:5000/api/supplier-payments/${paymentId}/reject`, { reason: rejectionReason }, config);
-
             toast.error("Payment Rejected. Admin has been notified.");
             setViewingReceipt(null);
             setShowRejectInput(false);
@@ -209,6 +271,7 @@ export default function SupplierDashboard() {
         if (unreadCount > 0) {
             try {
                 setUnreadCount(0);
+                setNotifications(prev => prev.map(n => ({...n, isRead: true})));
             } catch(e) {
                 console.error("Failed to mark as read");
             }
@@ -256,22 +319,13 @@ export default function SupplierDashboard() {
 
     const hasData = purchases && purchases.length > 0;
 
-    const areaChartData = purchases.slice(0, 12).reverse().map(p => ({
-        name: p.invoiceNumber ? p.invoiceNumber.substring(p.invoiceNumber.length - 4) : 'N/A',
-        amount: Number(p.totalAmount || 0)
-    }));
-
-    const barChartData = purchases.slice(0, 8).reverse().map(p => ({
-        name: new Date(p.invoiceDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short' }),
-        value: Number(p.totalAmount || 0)
-    }));
-
     const navItems = [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { id: 'payments', label: 'Payments', icon: CreditCard },
         { id: 'orders', label: 'Orders & GRNs', icon: Receipt },
         { id: 'returns', label: 'Returns (Debit Notes)', icon: Archive },
         { id: 'products', label: 'My Products', icon: Box },
+        { id: 'requests', label: 'Stock Requests', icon: PackagePlus },
         { id: 'profile', label: 'Company Profile', icon: Building2 },
     ];
 
@@ -302,7 +356,6 @@ export default function SupplierDashboard() {
 
     return (
         <div className="flex h-screen bg-slate-50 font-sans overflow-hidden relative z-0">
-
             <div
                 className="absolute inset-0 z-0 pointer-events-none opacity-[0.02]"
                 style={{
@@ -313,11 +366,7 @@ export default function SupplierDashboard() {
                 }}
             />
 
-            <aside
-                className={`relative my-4 ml-4 h-[calc(100vh-32px)] bg-white rounded-[32px] border border-slate-200 transition-all duration-300 ease-in-out flex flex-col flex-shrink-0 z-40 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] ${
-                    isCollapsed ? 'w-24' : 'w-72'
-                }`}
-            >
+            <aside className={`relative my-4 ml-4 h-[calc(100vh-32px)] bg-white rounded-[32px] border border-slate-200 transition-all duration-300 ease-in-out flex flex-col flex-shrink-0 z-40 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] ${isCollapsed ? 'w-24' : 'w-72'}`}>
                 <button
                     onClick={() => setIsCollapsed(!isCollapsed)}
                     className="absolute -right-3.5 top-10 bg-white border border-slate-200 rounded-full p-1.5 shadow-sm hover:bg-slate-50 transition-all z-50 hover:scale-110 cursor-pointer flex items-center justify-center text-slate-400 hover:text-blue-600"
@@ -383,7 +432,6 @@ export default function SupplierDashboard() {
             </aside>
 
             <div className="flex-1 flex flex-col overflow-hidden relative z-10">
-
                 <div className="flex justify-between items-center px-8 pt-6 pb-2 z-30 bg-transparent">
                     <div className="hidden md:block">
                         <span className="text-[13px] font-bold text-slate-400 tracking-wide bg-white/50 px-3 py-1 rounded-full backdrop-blur-sm border border-slate-200/50">
@@ -421,8 +469,9 @@ export default function SupplierDashboard() {
                                                 let bgColor = 'bg-blue-50';
                                                 let Icon = Bell;
 
-                                                if(note.title.includes('Low Stock')) { iconColor = 'text-orange-500'; bgColor = 'bg-orange-50'; Icon = AlertTriangle; }
-                                                if(note.title.includes('Return') || note.title.includes('Debit')) { iconColor = 'text-rose-500'; bgColor = 'bg-rose-50'; Icon = ArrowRightLeft; }
+                                                if(note.title?.includes('Low Stock')) { iconColor = 'text-orange-500'; bgColor = 'bg-orange-50'; Icon = AlertTriangle; }
+                                                if(note.title?.includes('Return') || note.title?.includes('Debit')) { iconColor = 'text-rose-500'; bgColor = 'bg-rose-50'; Icon = ArrowRightLeft; }
+                                                if(note.title?.includes('Refill') || note.title?.includes('Request')) { iconColor = 'text-emerald-500'; bgColor = 'bg-emerald-50'; Icon = PackagePlus; }
 
                                                 return (
                                                     <div key={note.id || Math.random()} className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors flex gap-3 items-start">
@@ -453,7 +502,6 @@ export default function SupplierDashboard() {
                 </div>
 
                 <main className="flex-1 overflow-x-hidden overflow-y-auto px-8 pb-8 pt-2 relative custom-scrollbar">
-
                     {isAccountInactive && (
                         <div className="mb-6 bg-rose-500 text-white p-4 rounded-2xl flex items-center gap-4 shadow-lg shadow-rose-500/20 relative z-20">
                             <AlertTriangle size={28} className="text-white flex-shrink-0" />
@@ -465,18 +513,9 @@ export default function SupplierDashboard() {
                     )}
 
                     <AnimatePresence mode="wait">
-
                         {activeTab === 'dashboard' && (
-                            <motion.div
-                                key="dashboard"
-                                variants={pageVariants}
-                                initial="initial"
-                                animate="animate"
-                                exit="exit"
-                                className="space-y-6 max-w-7xl mx-auto pb-10 relative z-20"
-                            >
+                            <motion.div key="dashboard" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="space-y-6 max-w-7xl mx-auto pb-10 relative z-20">
                                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
                                     <div className="lg:col-span-5 bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-sky-500/10 p-6 rounded-[32px] border border-white shadow-sm flex flex-col justify-between h-[220px] relative overflow-hidden backdrop-blur-md">
                                         <div className="z-10">
                                             <p className="text-[12px] font-bold text-slate-500 mb-1">Welcome back,</p>
@@ -494,22 +533,10 @@ export default function SupplierDashboard() {
                                             <h3 className="text-[14px] font-bold text-slate-800 mb-1">Collection Rate</h3>
                                             <p className="text-[11px] text-slate-400">From total revenue</p>
                                         </div>
-
                                         <div className="relative w-[130px] h-[130px] flex items-center justify-center">
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <PieChart>
-                                                    <Pie
-                                                        data={finalGaugeData}
-                                                        cx="50%"
-                                                        cy="50%"
-                                                        startAngle={225}
-                                                        endAngle={-45}
-                                                        innerRadius={45}
-                                                        outerRadius={60}
-                                                        dataKey="value"
-                                                        stroke="none"
-                                                        cornerRadius={20}
-                                                    >
+                                                    <Pie data={finalGaugeData} cx="50%" cy="50%" startAngle={225} endAngle={-45} innerRadius={45} outerRadius={60} dataKey="value" stroke="none" cornerRadius={20}>
                                                         {finalGaugeData.map((entry, index) => (
                                                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                                         ))}
@@ -528,7 +555,6 @@ export default function SupplierDashboard() {
                                             <h3 className="text-[14px] font-bold text-slate-800">Financial Tracking</h3>
                                             <button className="text-slate-400 hover:text-slate-600"><Eye size={16}/></button>
                                         </div>
-
                                         <div className="flex items-center justify-between flex-1">
                                             <div className="space-y-2.5 flex-1 pr-2">
                                                 <div className="bg-slate-50/80 px-4 py-2.5 rounded-[20px] border border-slate-100">
@@ -540,16 +566,10 @@ export default function SupplierDashboard() {
                                                     <p className="text-[17px] font-bold text-rose-600 leading-none">LKR {(totalDebitNotes/1000).toFixed(1)}k</p>
                                                 </div>
                                             </div>
-
                                             <div className="relative w-[100px] h-[100px] flex items-center justify-center shrink-0">
                                                 <ResponsiveContainer width="100%" height="100%">
                                                     <PieChart>
-                                                        <Pie
-                                                            data={[{value: totalRevenue > 0 ? totalRevenue : 1}]}
-                                                            cx="50%" cy="50%"
-                                                            innerRadius={36} outerRadius={48}
-                                                            dataKey="value" stroke="none" fill={totalRevenue > 0 ? "#10b981" : "#e2e8f0"}
-                                                        />
+                                                        <Pie data={[{value: totalRevenue > 0 ? totalRevenue : 1}]} cx="50%" cy="50%" innerRadius={36} outerRadius={48} dataKey="value" stroke="none" fill={totalRevenue > 0 ? "#10b981" : "#e2e8f0"} />
                                                     </PieChart>
                                                 </ResponsiveContainer>
                                                 <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -560,92 +580,6 @@ export default function SupplierDashboard() {
                                         </div>
                                     </div>
                                 </div>
-
-                                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-                                    <div className="lg:col-span-7 bg-white/90 backdrop-blur-md p-6 rounded-[32px] border border-slate-200 shadow-sm h-[380px] flex flex-col relative">
-                                        <div className="mb-4">
-                                            <h3 className="text-[16px] font-bold text-slate-800 flex items-center gap-2">
-                                                Revenue Overview
-                                            </h3>
-                                            <p className="text-[12px] font-medium text-blue-500 mt-1">Based on recent GRNs</p>
-                                        </div>
-                                        <div className="w-full h-[260px] relative">
-                                            {!hasData && (
-                                                <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60 backdrop-blur-sm rounded-xl">
-                                                    <span className="text-[13px] font-bold text-slate-500 bg-white px-5 py-2 rounded-full shadow-lg border border-slate-200 flex items-center gap-2">
-                                                        <AlertCircle size={16} className="text-slate-400"/> No data available yet
-                                                    </span>
-                                                </div>
-                                            )}
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <AreaChart data={areaChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                                                    <defs>
-                                                        <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
-                                                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                                                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                                                        </linearGradient>
-                                                    </defs>
-                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#94a3b8'}} dy={10} />
-                                                    <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#94a3b8'}} tickFormatter={(value) => `${(value/1000)}k`} />
-                                                    <RechartsTooltip
-                                                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                                                        labelStyle={{ fontWeight: 'bold', color: '#1e293b' }}
-                                                        itemStyle={{ fontWeight: 'bold', color: '#3b82f6' }}
-                                                    />
-                                                    <Area type="monotone" dataKey="amount" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorAmount)" />
-                                                </AreaChart>
-                                            </ResponsiveContainer>
-                                        </div>
-                                    </div>
-
-                                    <div className="lg:col-span-5 bg-white/90 backdrop-blur-md p-6 rounded-[32px] border border-slate-200 shadow-sm h-[380px] flex flex-col justify-between relative">
-                                        <div className="w-full h-[180px] relative">
-                                            {!hasData && (
-                                                <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60 backdrop-blur-sm rounded-xl">
-                                                    <span className="text-[13px] font-bold text-slate-500 bg-white px-5 py-2 rounded-full shadow-lg border border-slate-200 flex items-center gap-2">
-                                                        <AlertCircle size={16} className="text-slate-400"/> No data available yet
-                                                    </span>
-                                                </div>
-                                            )}
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <BarChart data={barChartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
-                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 9, fill: '#94a3b8'}} dy={10} />
-                                                    <YAxis axisLine={false} tickLine={false} tick={{fontSize: 9, fill: '#94a3b8'}} tickFormatter={(value) => `${(value/1000)}k`} />
-                                                    <RechartsTooltip cursor={{fill: '#f8fafc'}} contentStyle={{ borderRadius: '8px', border: 'none' }} />
-                                                    <Bar dataKey="value" fill="#0f172a" radius={[4, 4, 0, 0]} barSize={12} />
-                                                </BarChart>
-                                            </ResponsiveContainer>
-                                        </div>
-
-                                        <div className="mt-4">
-                                            <h3 className="text-[14px] font-bold text-slate-800 mb-1">Total System Activity</h3>
-                                            <p className="text-[11px] font-medium text-emerald-500 mb-4">+ active than last week</p>
-
-                                            <div className="grid grid-cols-4 gap-2">
-                                                <div className="flex flex-col gap-1">
-                                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-sm bg-blue-500"></div><span className="text-[10px] font-bold text-slate-500">Revenue</span></div>
-                                                    <span className="text-[13px] font-bold text-slate-800">{(totalRevenue/1000).toFixed(0)}k</span>
-                                                </div>
-                                                <div className="flex flex-col gap-1">
-                                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-sm bg-indigo-500"></div><span className="text-[10px] font-bold text-slate-500">Dues</span></div>
-                                                    <span className="text-[13px] font-bold text-slate-800">{(totalOutstanding/1000).toFixed(0)}k</span>
-                                                </div>
-                                                <div className="flex flex-col gap-1">
-                                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-sm bg-rose-500"></div><span className="text-[10px] font-bold text-slate-500">Returns</span></div>
-                                                    <span className="text-[13px] font-bold text-slate-800">{(totalDebitNotes/1000).toFixed(0)}k</span>
-                                                </div>
-                                                <div className="flex flex-col gap-1">
-                                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-sm bg-slate-800"></div><span className="text-[10px] font-bold text-slate-500">Orders</span></div>
-                                                    <span className="text-[13px] font-bold text-slate-800">{purchases.length}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
                                 <div className="bg-white/90 backdrop-blur-md rounded-[32px] border border-slate-200 shadow-sm overflow-hidden mt-6">
                                     <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
                                         <div>
@@ -1000,21 +934,71 @@ export default function SupplierDashboard() {
                             </motion.div>
                         )}
 
-                    </AnimatePresence>
+                        {activeTab === 'requests' && (
+                            <motion.div key="requests" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="max-w-7xl mx-auto pb-10 relative z-20">
+                                <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+                                    <div>
+                                        <h2 className="text-[24px] font-bold text-slate-800 flex items-center gap-2"><PackagePlus className="text-blue-500"/> Stock Requests</h2>
+                                        <p className="text-[13px] font-medium text-slate-500 mt-1">Review and process stock refill requests from the pharmacy.</p>
+                                    </div>
+                                    <button onClick={() => handleGenerateReport('Stock Requests')} className="flex shrink-0 items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[13px] font-bold text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-all shadow-sm cursor-pointer">
+                                        <Download size={16} className="text-blue-500" /> Generate Report
+                                    </button>
+                                </div>
 
+                                <div className="bg-white/90 backdrop-blur-md rounded-[24px] border border-slate-200 shadow-sm overflow-hidden mb-8">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left border-collapse min-w-[800px]">
+                                            <thead>
+                                            <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                                                <th className="p-4 w-[15%]">Date</th>
+                                                <th className="p-4 w-[25%]">Request Title</th>
+                                                <th className="p-4 w-[40%]">Details</th>
+                                                <th className="p-4 w-[10%] text-center">Status</th>
+                                                <th className="p-4 w-[10%] text-center">Action</th>
+                                            </tr>
+                                            </thead>
+                                            <tbody>
+                                            {loading ? <tr><td colSpan="5" className="text-center py-10 text-slate-400">Loading...</td></tr> :
+                                                notifications.filter(n => n.title?.includes('Request') || n.title?.includes('Refill')).length === 0 ? <tr><td colSpan="5" className="text-center py-10 text-slate-400">No Requests Found.</td></tr> :
+                                                    notifications.filter(n => n.title?.includes('Request') || n.title?.includes('Refill')).map((req, idx) => (
+                                                        <tr key={req.id || idx} className={`border-b border-slate-100 hover:bg-slate-50/80 ${req.status === 'Accepted' ? 'bg-emerald-50/30' : req.status === 'Rejected' ? 'bg-rose-50/30' : 'bg-amber-50/30'}`}>
+                                                            <td className="p-4 text-[13px] text-slate-600 font-medium">{new Date(req.time || req.createdAt).toLocaleDateString()}</td>
+                                                            <td className="p-4 text-[13px] font-bold text-slate-800">{req.title}</td>
+                                                            <td className="p-4 text-[12px] text-slate-500">{req.message}</td>
+                                                            <td className="p-4 text-center">
+                                                                <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold border ${req.status === 'Accepted' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : req.status === 'Rejected' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-700 border-amber-200 animate-pulse'}`}>
+                                                                    {req.status || 'Pending'}
+                                                                </span>
+                                                            </td>
+                                                            <td className="p-4 text-center">
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setViewingRequest(req);
+                                                                        setShowRequestReject(false);
+                                                                        setRequestRejectReason('');
+                                                                    }}
+                                                                    className={`inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold transition-all cursor-pointer shadow-sm ${req.status === 'Accepted' || req.status === 'Rejected' ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-blue-500 text-white hover:bg-blue-600 hover:shadow-md'}`}
+                                                                >
+                                                                    <Eye size={14}/> {req.status === 'Accepted' || req.status === 'Rejected' ? 'View' : 'Review'}
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </main>
             </div>
 
             {isProfileOpen && (
-                <div
-                    className="fixed inset-0 z-40 bg-slate-900/10 backdrop-blur-sm transition-opacity"
-                    onClick={() => setIsProfileOpen(false)}
-                ></div>
+                <div className="fixed inset-0 z-40 bg-slate-900/10 backdrop-blur-sm transition-opacity" onClick={() => setIsProfileOpen(false)}></div>
             )}
-
-            <aside
-                className={`fixed top-4 right-4 h-[calc(100vh-32px)] w-80 bg-white/95 backdrop-blur-md rounded-[32px] border border-slate-200 shadow-[0_8px_32px_0_rgba(31,38,135,0.1)] z-50 transform transition-transform duration-300 ease-in-out ${isProfileOpen ? 'translate-x-0' : 'translate-x-[120%]'}`}
-            >
+            <aside className={`fixed top-4 right-4 h-[calc(100vh-32px)] w-80 bg-white/95 backdrop-blur-md rounded-[32px] border border-slate-200 shadow-[0_8px_32px_0_rgba(31,38,135,0.1)] z-50 transform transition-transform duration-300 ease-in-out ${isProfileOpen ? 'translate-x-0' : 'translate-x-[120%]'}`}>
                 <div className="p-6 h-full flex flex-col overflow-y-auto hide-scrollbar">
                     <div className="flex justify-between items-center mb-8">
                         <button onClick={() => setIsProfileOpen(false)} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors cursor-pointer">
@@ -1036,38 +1020,6 @@ export default function SupplierDashboard() {
                             Verified Supplier Account
                         </p>
                     </div>
-
-                    <div className="px-2">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-[14px] font-extrabold text-slate-800 tracking-tight">Recent Alerts</h3>
-                            <Bell size={14} className="text-blue-500" />
-                        </div>
-                        <div className="space-y-4">
-                            {notifications.length > 0 ? (
-                                notifications.slice(0, 5).map((note, idx) => {
-                                    let iconColor = 'text-blue-500';
-                                    let bgColor = 'bg-blue-50';
-                                    let Icon = Bell;
-
-                                    if(note.title.includes('Low Stock')) { iconColor = 'text-orange-500'; bgColor = 'bg-orange-50'; Icon = AlertTriangle; }
-                                    if(note.title.includes('Return') || note.title.includes('Debit')) { iconColor = 'text-rose-500'; bgColor = 'bg-rose-50'; Icon = ArrowRightLeft; }
-
-                                    return (
-                                        <div key={idx} className="flex gap-3 items-start p-1.5 cursor-pointer group hover:bg-slate-50 rounded-xl transition-colors border border-transparent hover:border-slate-100">
-                                            <div className={`p-1.5 ${bgColor} ${iconColor} rounded-full mt-0.5 group-hover:scale-110 transition-transform shrink-0`}><Icon size={12} strokeWidth={2.5}/></div>
-                                            <div>
-                                                <p className="text-[12px] font-bold text-slate-700 group-hover:text-slate-900 transition-colors leading-tight mb-0.5">{note.title}</p>
-                                                <p className="text-[10px] font-medium text-slate-500 leading-relaxed line-clamp-2">{note.message}</p>
-                                                <p className="text-[9px] text-slate-400 mt-1.5 font-bold">{new Date(note.time || note.createdAt).toLocaleString()}</p>
-                                            </div>
-                                        </div>
-                                    )
-                                })
-                            ) : (
-                                <div className="text-center py-6 text-sm text-slate-400 font-medium">No recent alerts</div>
-                            )}
-                        </div>
-                    </div>
                 </div>
             </aside>
 
@@ -1086,7 +1038,7 @@ export default function SupplierDashboard() {
                             </button>
                         </div>
 
-                        <div className={`flex-1 overflow-y-auto bg-slate-100 rounded-2xl border border-slate-200 flex justify-center items-center p-2 custom-scrollbar ${!showRejectInput ? 'mb-4' : 'mb-2 h-[200px]'}`}>
+                        <div className={`flex-1 overflow-y-auto bg-slate-100 rounded-2xl border border-slate-200 flex justify-center items-center p-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] ${!showRejectInput ? 'mb-4' : 'mb-2 h-[200px]'}`}>
                             {viewingReceipt.receiptImage ? (
                                 <iframe
                                     src={viewingReceipt.receiptImage}
@@ -1163,6 +1115,239 @@ export default function SupplierDashboard() {
                                 </p>
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {viewingRequest && (
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-md flex items-center justify-center z-[100] p-4">
+                    <div className="bg-white/90 backdrop-blur-2xl rounded-[32px] shadow-2xl border border-white w-full max-w-[500px] flex flex-col max-h-[90vh] overflow-hidden">
+                        <div className="px-6 pt-6 pb-4 flex justify-between items-center flex-shrink-0">
+                            <div>
+                                <h2 className="text-[20px] font-bold text-slate-800 flex items-center gap-2.5">
+                                    <PackagePlus className="text-blue-500 w-6 h-6"/> Review Stock Request
+                                </h2>
+                                <p className="text-[12px] font-medium text-slate-500 mt-0.5">Review this stock request from the pharmacy.</p>
+                            </div>
+                            <button onClick={() => setViewingRequest(null)} className="hover:bg-slate-100 p-2 rounded-full transition-colors cursor-pointer text-slate-400">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="px-6 pb-6 overflow-y-auto flex-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                            {(() => {
+                                const matchedProduct = viewingRequest.restockId
+                                    ? products.find(p => String(p.id) === String(viewingRequest.medicineId))
+                                    : products.find(p =>
+                                        (viewingRequest.title && viewingRequest.title.toLowerCase().includes(p.name.toLowerCase())) ||
+                                        (viewingRequest.message && viewingRequest.message.toLowerCase().includes(p.name.toLowerCase())) ||
+                                        (viewingRequest.medicineId && String(viewingRequest.medicineId) === String(p.id))
+                                    );
+                                const qtyMatch = (viewingRequest.message && viewingRequest.message.match(/Quantity Needed:\s*(\d+)/i)) ||
+                                    (viewingRequest.title && viewingRequest.title.match(/Quantity:\s*(\d+)/i));
+                                const requestedQty = qtyMatch ? qtyMatch[1] : (matchedProduct?.quantity || 'N/A');
+
+                                return (
+                                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 mb-6">
+                                        <div className="flex items-center gap-2 mb-4 border-b border-slate-200 pb-3">
+                                            <PackagePlus className="text-blue-500" size={18}/>
+                                            <h3 className="text-[14px] font-extrabold text-slate-800">Requested Item Details</h3>
+                                        </div>
+                                        {matchedProduct ? (
+                                            <div className="grid grid-cols-2 gap-y-4 gap-x-6">
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Medicine (Brand Name)</label>
+                                                    <p className="text-[13px] font-bold text-slate-800">{matchedProduct.name}</p>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Generic Name (Locked)</label>
+                                                    <p className="text-[13px] font-bold text-slate-800">{matchedProduct.genericName || '-'}</p>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Category (Locked)</label>
+                                                    <p className="text-[13px] font-bold text-slate-800">{matchedProduct.category || '-'}</p>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Dosage / Strength</label>
+                                                    <p className="text-[13px] font-bold text-slate-800">{matchedProduct.dosage || '-'}</p>
+                                                </div>
+                                                <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-100">
+                                                    <label className="block text-[10px] font-bold text-emerald-600 uppercase mb-1">Requested Stock Qty</label>
+                                                    <p className="text-[16px] font-black text-emerald-700">{requestedQty}</p>
+                                                </div>
+                                                <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-100">
+                                                    <label className="block text-[10px] font-bold text-blue-600 uppercase mb-1">Cost (Your Income / Unit)</label>
+                                                    <p className="text-[16px] font-black text-blue-700">LKR {Number(matchedProduct.costPrice).toFixed(2)}</p>
+                                                </div>
+                                                <div className="col-span-2 pt-2 border-t border-slate-200">
+                                                    <p className="text-[12px] text-slate-500 leading-relaxed font-medium">
+                                                        <span className="font-bold text-slate-600">Request Note: </span>
+                                                        {viewingRequest.message}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div>
+                                                <p className="text-[13px] text-slate-600 leading-relaxed">{viewingRequest.message}</p>
+                                            </div>
+                                        )}
+                                        <p className="text-[10px] text-slate-400 mt-4 font-bold text-right">{new Date(viewingRequest.time || viewingRequest.createdAt).toLocaleString()}</p>
+                                    </div>
+                                );
+                            })()}
+
+                            {showRequestReject && (!viewingRequest.status || viewingRequest.status === 'Pending') && (
+                                <div className="mb-4 bg-rose-50/50 p-4 rounded-2xl border border-rose-100">
+                                    <label className="block text-[11px] font-bold text-rose-600 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                                        <AlertTriangle size={14}/> Reason for Rejection *
+                                    </label>
+                                    <textarea
+                                        className="w-full px-3 py-2.5 bg-white border border-rose-200 rounded-xl text-[13px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-rose-400/40 resize-none h-20"
+                                        placeholder="State why you cannot fulfill this request (e.g., Out of stock, Discontinued...)"
+                                        value={requestRejectReason}
+                                        onChange={(e) => setRequestRejectReason(e.target.value)}
+                                    ></textarea>
+                                    <div className="flex gap-2 mt-3">
+                                        <button
+                                            onClick={() => setShowRequestReject(false)}
+                                            className="flex-1 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-[12px] font-bold hover:bg-slate-50 transition-colors cursor-pointer"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={async () => {
+                                                if (viewingRequest.restockId) {
+                                                    await handleLinkedRestock('reject');
+                                                    return;
+                                                }
+                                                if (!requestRejectReason.trim()) {
+                                                    toast.error('Please enter a rejection reason.');
+                                                    return;
+                                                }
+                                                setProcessingRequest(true);
+                                                try {
+                                                    const matchedProduct = products.find(p =>
+                                                        (viewingRequest.title && viewingRequest.title.toLowerCase().includes(p.name.toLowerCase())) ||
+                                                        (viewingRequest.message && viewingRequest.message.toLowerCase().includes(p.name.toLowerCase())) ||
+                                                        (viewingRequest.medicineId && String(viewingRequest.medicineId) === String(p.id))
+                                                    );
+
+                                                    if(matchedProduct) {
+                                                        await axios.put(`http://localhost:5000/api/medicines/${matchedProduct.id}`, {
+                                                            quantity: matchedProduct.quantity,
+                                                            costPrice: matchedProduct.costPrice,
+                                                            sellingPrice: matchedProduct.sellingPrice,
+                                                            expiryDate: matchedProduct.expiryDate,
+                                                            minStockLevel: matchedProduct.minStockLevel,
+                                                            rejectionReason: requestRejectReason
+                                                        }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+                                                    } else {
+                                                        toast.error("Error: Connected medicine not found in your catalog.");
+                                                        setProcessingRequest(false);
+                                                        return;
+                                                    }
+
+                                                    setNotifications(prev => prev.map(n => n.id === viewingRequest.id ? { ...n, status: 'Rejected', rejectReason: requestRejectReason } : n));
+                                                    setUnreadCount(prev => Math.max(0, prev - 1));
+                                                    toast.error("Stock Request Rejected. Pharmacy has been notified.");
+                                                    setViewingRequest(null);
+                                                    setShowRequestReject(false);
+                                                    setRequestRejectReason('');
+                                                } catch (err) {
+                                                    toast.error("Error rejecting request.");
+                                                } finally {
+                                                    setProcessingRequest(false);
+                                                }
+                                            }}
+                                            disabled={processingRequest}
+                                            className="flex-1 py-2 bg-rose-500 text-white rounded-lg text-[12px] font-bold hover:bg-rose-600 transition-colors disabled:opacity-50 cursor-pointer"
+                                        >
+                                            {processingRequest ? 'Rejecting...' : 'Confirm Rejection'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {(!viewingRequest.status || viewingRequest.status === 'Pending') && !showRequestReject && (
+                                <div className="flex-shrink-0 flex gap-3">
+                                    <button
+                                        onClick={() => setShowRequestReject(true)}
+                                        disabled={isAccountInactive}
+                                        className="flex-1 flex items-center justify-center gap-2 bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 font-bold py-3.5 rounded-2xl transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Reject Request
+                                    </button>
+                                    <button
+                                        onClick={async () => {
+                                            if (viewingRequest.restockId) {
+                                                await handleLinkedRestock('accept');
+                                                return;
+                                            }
+                                            setProcessingRequest(true);
+                                            try {
+                                                const matchedProduct = products.find(p =>
+                                                    (viewingRequest.title && viewingRequest.title.toLowerCase().includes(p.name.toLowerCase())) ||
+                                                    (viewingRequest.message && viewingRequest.message.toLowerCase().includes(p.name.toLowerCase())) ||
+                                                    (viewingRequest.medicineId && String(viewingRequest.medicineId) === String(p.id))
+                                                );
+
+                                                if (matchedProduct) {
+                                                    const qtyMatch = (viewingRequest.message && viewingRequest.message.match(/Quantity Needed:\s*(\d+)/i)) ||
+                                                        (viewingRequest.title && viewingRequest.title.match(/Quantity:\s*(\d+)/i));
+                                                    const requestedQty = qtyMatch ? parseInt(qtyMatch[1], 10) : parseInt(matchedProduct.minStockLevel || 50, 10);
+
+                                                    await axios.put(`http://localhost:5000/api/medicines/${matchedProduct.id}`, {
+                                                        quantity: Number(matchedProduct.quantity) + requestedQty,
+                                                        costPrice: matchedProduct.costPrice,
+                                                        sellingPrice: matchedProduct.sellingPrice,
+                                                        expiryDate: matchedProduct.expiryDate,
+                                                        minStockLevel: matchedProduct.minStockLevel,
+                                                        rejectionReason: null
+                                                    }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+
+                                                    fetchPortalData();
+                                                } else {
+                                                    toast.error("Error: Connected medicine not found in your catalog.");
+                                                    setProcessingRequest(false);
+                                                    return;
+                                                }
+
+                                                setNotifications(prev => prev.map(n => n.id === viewingRequest.id ? { ...n, status: 'Accepted' } : n));
+                                                setUnreadCount(prev => Math.max(0, prev - 1));
+                                                toast.success("Stock Request Accepted! Inventory Updated.");
+                                                setViewingRequest(null);
+                                            } catch(err) {
+                                                toast.error("Error accepting request.");
+                                            } finally {
+                                                setProcessingRequest(false);
+                                            }
+                                        }}
+                                        disabled={processingRequest || isAccountInactive}
+                                        className="flex-1 flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-emerald-500/30 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        <CheckCircle size={18} /> {processingRequest ? 'Processing...' : 'Accept Request'}
+                                    </button>
+                                </div>
+                            )}
+
+                            {viewingRequest.status === 'Accepted' && (
+                                <div className="flex-shrink-0 bg-emerald-50 border border-emerald-100 rounded-2xl p-3 flex justify-center items-center gap-2 mt-4">
+                                    <CheckCircle size={16} className="text-emerald-500" />
+                                    <span className="text-[13px] font-bold text-emerald-700">Request Already Accepted</span>
+                                </div>
+                            )}
+
+                            {viewingRequest.status === 'Rejected' && (
+                                <div className="flex-shrink-0 bg-rose-50 border border-rose-100 rounded-2xl p-4 flex flex-col gap-1.5 mt-4">
+                                    <div className="flex items-center gap-2 text-rose-600 font-bold text-[13px]">
+                                        <X size={16} /> Request Rejected
+                                    </div>
+                                    <p className="text-[12px] text-slate-600 font-medium">
+                                        <span className="font-bold text-slate-700">Reason:</span> {viewingRequest.rejectReason || 'No reason provided.'}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
