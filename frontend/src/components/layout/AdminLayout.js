@@ -30,7 +30,6 @@ import io from 'socket.io-client';
 import profileImg from '../../assets/profile.png';
 import logoImage from '../../assets/logo.png';
 
-// Chatbot import එක
 import TrackingChatbot from '../chatbot/TrackingChatbot';
 
 const ADMIN_LINKS = [
@@ -49,7 +48,22 @@ const ADMIN_LINKS = [
 
 export default function AdminLayout({ children }) {
     const { logout, user } = useContext(AuthContext);
-    const [isCollapsed, setIsCollapsed] = useState(false);
+    const [isCollapsed, setIsCollapsed] = useState(() => {
+        try {
+            return sessionStorage.getItem('adminSidebarCollapsed') === 'true';
+        } catch {
+            return false;
+        }
+    });
+
+    const toggleSidebar = () => {
+        const nextCollapsed = !isCollapsed;
+        try {
+            sessionStorage.setItem('adminSidebarCollapsed', String(nextCollapsed));
+        } catch {
+        }
+        setIsCollapsed(nextCollapsed);
+    };
 
     const [isProfileOpen, setIsProfileOpen] = useState(false);
 
@@ -114,6 +128,12 @@ export default function AdminLayout({ children }) {
             if (isMounted) {
                 setNotifications((prev) => [data, ...prev]);
                 setUnreadCount((prev) => prev + 1);
+                const text = `${data.title || ''} ${data.message || ''}`;
+                const requestedModule = /supplier|customer|prescription|sale|bill|invoice|grn/i.test(text);
+                const created = /creat|added|new |complet|generat/i.test(text);
+                if (data.target !== 'supplier' && requestedModule && created) {
+                    toast.success(data.message || data.title || 'Created successfully.');
+                }
             }
         });
 
@@ -176,7 +196,7 @@ export default function AdminLayout({ children }) {
                 }`}
             >
                 <button
-                    onClick={() => setIsCollapsed(!isCollapsed)}
+                    onClick={toggleSidebar}
                     className="absolute -right-3.5 top-10 bg-[#414345] border border-white/10 rounded-full p-1.5 shadow-sm hover:bg-white/5 transition-all z-50 hover:scale-110 cursor-pointer flex items-center justify-center text-slate-200 hover:text-white"
                 >
                     {isCollapsed ? <ChevronRight size={18} strokeWidth={2.5} /> : <ChevronLeft size={18} strokeWidth={2.5} />}
@@ -260,9 +280,8 @@ export default function AdminLayout({ children }) {
                             >
                                 <Bell size={18} strokeWidth={2.5} />
                                 {unreadCount > 0 && (
-                                    <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500 border-2 border-white"></span>
+                                    <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 rounded-full bg-blue-600 border-2 border-white text-white text-[10px] font-bold flex items-center justify-center" aria-live="polite">
+                                        {unreadCount}
                                     </span>
                                 )}
                             </button>
@@ -272,7 +291,7 @@ export default function AdminLayout({ children }) {
                                     <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex justify-between items-center">
                                         <h3 className="text-sm font-bold text-slate-800">Notifications</h3>
                                         {unreadCount > 0 && (
-                                            <span className="text-[10px] font-bold bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full shadow-sm">{unreadCount} New</span>
+                                            <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full shadow-sm">{unreadCount} New</span>
                                         )}
                                     </div>
                                     <div className="max-h-[300px] overflow-y-auto hover-scroll">
