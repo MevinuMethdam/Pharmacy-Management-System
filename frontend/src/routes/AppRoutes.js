@@ -17,19 +17,27 @@ import NMRALogsPage from '../pages/prescriptions/NMRALogsPage';
 import CRMPage from '../pages/crm/CRMPage';
 import AIOutbreakRadar from '../pages/admin/AIOutbreakRadar';
 import RackLocatorPage from '../pages/inventory/RackLocatorPage';
-
+import CashierDashboard from '../pages/cashier/CashierDashboard';
+import CashierCRMPage from '../pages/cashier/CashierCRMPage';
+import CashierPrescriptionsPage from '../pages/cashier/CashierPrescriptionsPage';
+import CashierReportsPage from '../pages/cashier/CashierReportsPage';
+import PharmacistDashboard from '../pages/pharmacist/PharmacistDashboard';
+import PharmacistPurchasesPage from '../pages/pharmacist/PharmacistPurchasesPage';
+import PharmacistInventoryPage from '../pages/pharmacist/PharmacistInventoryPage';
+import PharmacistReturnsDisposalsPage from '../pages/pharmacist/PharmacistReturnsDisposalsPage';
+import PharmacistAIOutbreakRadar from '../pages/pharmacist/PharmacistAIOutbreakRadar';
+import PharmacistRackLocatorPage from '../pages/pharmacist/PharmacistRackLocatorPage';
 import POSPage from '../pages/pos/POSPage';
-import BillingPage from '../pages/cashier/BillingPage';
+
+import CashierPOSPage from '../pages/CashierPOSPage';
 
 import SupplierSetupPage from '../pages/supplier/SupplierSetupPage';
 import SupplierDashboard from '../pages/supplier/SupplierDashboard';
 import SupplierLogin from '../pages/supplier/SupplierLogin';
 
-const PharmacistDashboard = () => <div className="p-10 text-2xl font-bold text-center mt-10">Pharmacist Dashboard ⚕️</div>;
-
 const POSWrapper = () => {
     const { user } = useContext(AuthContext);
-    return user?.role === 'Admin' ? <POSPage /> : <BillingPage />;
+    return user?.role === 'Admin' ? <POSPage /> : <CashierPOSPage />;
 };
 
 const AppRoutes = () => {
@@ -51,6 +59,39 @@ const AppRoutes = () => {
                     </ProtectedRoute>
                 }
             />
+            <Route
+                path="/cashier-dashboard"
+                element={
+                    <ProtectedRoute allowedRoles={['Cashier', 'Admin']}>
+                        <CashierDashboard />
+                    </ProtectedRoute>
+                }
+            />
+
+            <Route
+                path="/cashier-crm"
+                element={
+                    <ProtectedRoute allowedRoles={['Cashier', 'Admin']}>
+                        <CashierCRMPage />
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/cashier-prescriptions"
+                element={
+                    <ProtectedRoute allowedRoles={['Cashier', 'Admin']}>
+                        <CashierPrescriptionsPage />
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/cashier-reports"
+                element={
+                    <ProtectedRoute allowedRoles={['Cashier', 'Admin']}>
+                        <CashierReportsPage />
+                    </ProtectedRoute>
+                }
+            />
 
             <Route path="/admin" element={<ProtectedRoute allowedRoles={['Admin']}><AdminDashboard /></ProtectedRoute>} />
             <Route path="/admin/inventory" element={<ProtectedRoute allowedRoles={['Admin']}><InventoryPage /></ProtectedRoute>} />
@@ -63,7 +104,54 @@ const AppRoutes = () => {
             <Route path="/admin/crm" element={<ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}><CRMPage /></ProtectedRoute>} />
             <Route path="/admin/ai-outbreak" element={<ProtectedRoute allowedRoles={['Admin']}><AIOutbreakRadar /></ProtectedRoute>} />
 
-            <Route path="/pharmacist/*" element={<ProtectedRoute allowedRoles={['Pharmacist', 'Admin']}><PharmacistDashboard /></ProtectedRoute>} />
+            <Route
+                path="/pharmacist/dashboard"
+                element={
+                    <ProtectedRoute allowedRoles={['Pharmacist', 'Admin']}>
+                        <PharmacistDashboard />
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/pharmacist/purchases-grn"
+                element={
+                    <ProtectedRoute allowedRoles={['Pharmacist', 'Admin']}>
+                        <PharmacistPurchasesPage />
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/pharmacist/inventory"
+                element={
+                    <ProtectedRoute allowedRoles={['Pharmacist', 'Admin']}>
+                        <PharmacistInventoryPage />
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/pharmacist/return-disposal"
+                element={
+                    <ProtectedRoute allowedRoles={['Pharmacist', 'Admin']}>
+                        <PharmacistReturnsDisposalsPage />
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/pharmacist/ai-outbreak-radar"
+                element={
+                    <ProtectedRoute allowedRoles={['Pharmacist', 'Admin']}>
+                        <PharmacistAIOutbreakRadar />
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/pharmacist/rack-locator"
+                element={
+                    <ProtectedRoute allowedRoles={['Pharmacist', 'Admin']}>
+                        <PharmacistRackLocatorPage />
+                    </ProtectedRoute>
+                }
+            />
 
             <Route
                 path="/pos/*"
