@@ -3,7 +3,7 @@ import toast from 'react-hot-toast';
 import {
     DollarSign, ShoppingBag, AlertTriangle, Clock, FileText, Activity,
     MoreHorizontal, Eye, Ban, ChevronLeft, ChevronRight, Edit, X, User, CreditCard,
-    Stethoscope, MessageSquare
+    Stethoscope, MessageSquare, Flame
 } from 'lucide-react';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -31,7 +31,7 @@ const MedicalHeroCard = ({ revenue = 0 }) => (
         <div className="absolute top-[-20%] right-[-40%] w-[350px] h-[350px] rounded-full border-[40px] border-white/5 pointer-events-none"></div>
 
         <div className="relative z-10 mt-2">
-            <p className="text-white/80 font-medium tracking-wide text-[14px] mb-2">Today's Revenue</p>
+            <p className="text-white/80 font-medium tracking-wide text-[14px] mb-2">Total Net Income</p>
             <h3 className="text-[36px] font-extrabold tracking-tight leading-none drop-shadow-sm">
                 LKR {Number(revenue).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
             </h3>
@@ -52,7 +52,7 @@ const SparklineCard = ({ revenue = 0, chartData = [] }) => (
     <div className="bg-white/40 backdrop-blur-xl p-6 rounded-[28px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/60 flex flex-col justify-between transition-transform duration-300 hover:-translate-y-1 h-full cursor-default">
         <div className="flex justify-between items-start mb-2">
             <div>
-                <h3 className="text-[#1e293b] text-[15px] font-bold tracking-tight">MTD Revenue</h3>
+                <h3 className="text-[#1e293b] text-[15px] font-bold tracking-tight">MTD Income</h3>
                 <p className="text-slate-500 text-[12px] font-medium mt-0.5">Current Month</p>
             </div>
             <span className="text-[12px] font-semibold text-emerald-600 bg-emerald-100/50 backdrop-blur-sm px-2.5 py-1 rounded-full">+100%</span>
@@ -139,6 +139,11 @@ export default function AdminDashboard() {
     const { user } = useContext(AuthContext) || {};
 
     const [salesData, setSalesData] = useState({ content: [], page: 0, totalPages: 0, totalElements: 0 });
+    const [analyticsSales, setAnalyticsSales] = useState([]);
+    const [returnsHistory, setReturnsHistory] = useState([]);
+    const [purchasesHistory, setPurchasesHistory] = useState([]);
+    const [supplierPayments, setSupplierPayments] = useState([]);
+    const [chartSources, setChartSources] = useState({ sales: 'loading', purchases: 'loading', payments: 'loading' });
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(0);
     const [from, setFrom] = useState('');
@@ -163,12 +168,7 @@ export default function AdminDashboard() {
             });
 
             if (Array.isArray(res.data)) {
-                setSalesData({
-                    content: res.data,
-                    page: 0,
-                    totalPages: 1,
-                    totalElements: res.data.length
-                });
+                setSalesData({ content: res.data, page: 0, totalPages: 1, totalElements: res.data.length });
             } else {
                 setSalesData({
                     content: res.data?.content || [],
@@ -183,6 +183,30 @@ export default function AdminDashboard() {
             setLoading(false);
         }
     }, [page, from, to]);
+
+    const fetchAnalyticsData = useCallback(async () => {
+        try {
+            const res = await salesApi.list({ page: 0, size: 10000 });
+            let content = Array.isArray(res.data) ? res.data : [...(res.data?.content || [])];
+            const totalPages = Array.isArray(res.data) ? 1 : Number(res.data?.totalPages || 1);
+            const pageSize = Number(res.data?.size || res.data?.pageable?.pageSize || content.length || 10000);
+            for (let analyticsPage = 1; analyticsPage < totalPages; analyticsPage += 1) {
+                const next = await salesApi.list({ page: analyticsPage, size: pageSize });
+                content = content.concat(Array.isArray(next.data) ? next.data : (next.data?.content || []));
+            }
+
+            const validSales = content.filter(s => {
+                const rm = s.remarks ? s.remarks.toUpperCase() : '';
+                return !(rm.includes('QUOTEPENDING') || rm.includes('ESTIMATE') || rm.includes('QUOTATION'));
+            }).filter(s => s.status === 'Completed');
+
+            setAnalyticsSales(validSales);
+            setChartSources(previous => ({ ...previous, sales: 'ready' }));
+        } catch (err) {
+            setChartSources(previous => ({ ...previous, sales: 'error' }));
+            console.error('Failed to load analytics sales', err);
+        }
+    }, []);
 
     const fetchInventoryStats = useCallback(async () => {
         try {
@@ -208,19 +232,86 @@ export default function AdminDashboard() {
         }
     }, []);
 
+    const fetchReturnsData = useCallback(async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+            const res = await axios.get('http://localhost:5000/api/returns/history', config);
+            setReturnsHistory(res.data || []);
+        } catch (err) {
+            console.error('Failed to load returns & disposals data for dashboard', err);
+        }
+    }, []);
+
+    const fetchPurchasesData = useCallback(async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+            const res = await axios.get('http://localhost:5000/api/purchases', config);
+            if (!Array.isArray(res.data)) throw new Error('Unexpected purchase history response');
+            setPurchasesHistory(res.data);
+            setChartSources(previous => ({ ...previous, purchases: 'ready' }));
+        } catch (err) {
+            setChartSources(previous => ({ ...previous, purchases: 'error' }));
+            console.error('Failed to load purchases data for dashboard', err);
+        }
+    }, []);
+
+    const fetchSupplierPayments = useCallback(async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+            const res = await axios.get('http://localhost:5000/api/supplier-payments', config);
+            if (!Array.isArray(res.data)) throw new Error('Unexpected supplier payment response');
+            setSupplierPayments(res.data);
+            setChartSources(previous => ({ ...previous, payments: 'ready' }));
+        } catch (err) {
+            setChartSources(previous => ({ ...previous, payments: 'error' }));
+            console.error('Failed to load supplier payments for chart', err);
+        }
+    }, []);
+
     useEffect(() => {
         fetchSalesData();
+        fetchAnalyticsData();
         fetchInventoryStats();
+        fetchReturnsData();
+        fetchPurchasesData();
+        fetchSupplierPayments();
 
         socket.on('receive_notification', () => {
             fetchSalesData();
+            fetchAnalyticsData();
             fetchInventoryStats();
+            fetchReturnsData();
+            fetchPurchasesData();
+            fetchSupplierPayments();
         });
 
         return () => {
             socket.off('receive_notification');
         };
-    }, [fetchSalesData, fetchInventoryStats]);
+    }, [fetchSalesData, fetchAnalyticsData, fetchInventoryStats, fetchReturnsData, fetchPurchasesData, fetchSupplierPayments]);
+
+    const [chartToday, setChartToday] = useState(() =>
+        new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Colombo' }).format(new Date())
+    );
+
+    useEffect(() => {
+        let refreshing = false;
+        const refresh = async () => {
+            if (document.hidden || refreshing) return;
+            refreshing = true;
+            setChartToday(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Colombo' }).format(new Date()));
+            try { await Promise.all([fetchAnalyticsData(), fetchPurchasesData(), fetchSupplierPayments()]); } finally { refreshing = false; }
+        };
+        const timer = window.setInterval(refresh, 30000);
+        window.addEventListener('focus', refresh);
+        return () => {
+            window.clearInterval(timer);
+            window.removeEventListener('focus', refresh);
+        };
+    }, [fetchAnalyticsData, fetchPurchasesData, fetchSupplierPayments]);
 
     const todayStr = new Date().toDateString();
 
@@ -230,20 +321,33 @@ export default function AdminDashboard() {
         return !(rm.includes('QUOTEPENDING') || rm.includes('ESTIMATE') || rm.includes('QUOTATION'));
     });
 
-    const completedSales = displaySalesList.filter(s => s.status === 'Completed');
+    const totalSalesRevenue = analyticsSales.reduce((sum, s) => sum + Number(s.totalAmount || 0), 0);
 
-    const todaySales = completedSales.filter(s => new Date(s.saleDate || s.createdAt).toDateString() === todayStr);
+    const totalPurchases = purchasesHistory.reduce((sum, p) => sum + Number(p.totalAmount || 0), 0);
+    const totalPaidToSuppliers = purchasesHistory.reduce((sum, p) => sum + Number(p.paidAmount || 0), 0);
+    const totalSupplierPayable = Math.max(0, totalPurchases - totalPaidToSuppliers);
 
-    const todayRevenue = todaySales.length > 0
-        ? todaySales.reduce((sum, s) => sum + Number(s.totalAmount || 0), 0)
-        : completedSales.reduce((sum, s) => sum + Number(s.totalAmount || 0), 0);
+    const totalDisposalsLoss = returnsHistory.filter(h =>
+        h.actionType === 'Dispose/Write-off'
+    ).reduce((sum, h) => sum + Number(h.totalValue || 0), 0);
 
-    const mtdRevenue = completedSales.reduce((sum, s) => sum + Number(s.totalAmount || 0), 0);
+    const totalDisposedCount = returnsHistory.filter(h =>
+        h.actionType === 'Dispose/Write-off'
+    ).length;
+
+    const totalPendingCredit = returnsHistory.filter(h =>
+        h.actionType === 'Return to Supplier' &&
+        h.status === 'Pending'
+    ).reduce((sum, h) => sum + Number(h.totalValue || 0), 0);
+
+    const totalNetIncome = totalSalesRevenue - totalPaidToSuppliers - totalDisposalsLoss;
+
+    const todaySales = analyticsSales.filter(s => new Date(s.saleDate || s.createdAt).toDateString() === todayStr);
 
     const dynamicMainChartData = useMemo(() => {
         const dateMap = {};
 
-        completedSales.forEach(sale => {
+        analyticsSales.forEach(sale => {
             const dateKey = new Date(sale.saleDate || sale.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
             if (!dateMap[dateKey]) {
                 dateMap[dateKey] = { name: dateKey, revenue: 0, cost: 0 };
@@ -271,13 +375,16 @@ export default function AdminDashboard() {
             { name: '06 Jan', revenue: 140, cost: 80 },
             { name: '07 Jan', revenue: 190, cost: 150 },
         ];
-    }, [completedSales]);
+    }, [analyticsSales]);
+
+    const chartReady = chartSources.sales === 'ready' && chartSources.payments === 'ready';
+    const chartError = chartSources.sales === 'error' || chartSources.payments === 'error';
 
     const dynamicSparklineData = useMemo(() => {
-        const reversedSales = [...completedSales].reverse();
+        const reversedSales = [...analyticsSales].slice(-30).reverse();
         if (reversedSales.length === 0) return [{ val: 0 }, { val: 0 }];
         return reversedSales.map(s => ({ val: Number(s.totalAmount || 0) }));
-    }, [completedSales]);
+    }, [analyticsSales]);
 
     async function handleVoid(sale) {
         if (window.confirm(`Are you sure you want to Void Invoice #${String(sale.saleId || sale.id).slice(0, 8).toUpperCase()}?`)) {
@@ -287,6 +394,7 @@ export default function AdminDashboard() {
                 }
                 toast.success('Sale voided successfully!');
                 fetchSalesData();
+                fetchAnalyticsData();
             } catch (err) {
                 toast.error(err.message || 'Failed to void sale');
             }
@@ -313,6 +421,7 @@ export default function AdminDashboard() {
             toast.success(`Invoice ${String(editingSale.saleId || editingSale.id).slice(0, 8).toUpperCase()} updated successfully!`);
             setEditingSale(null);
             fetchSalesData();
+            fetchAnalyticsData();
         } catch (err) {
             toast.error(err.message || 'Failed to update sale');
         } finally {
@@ -320,8 +429,25 @@ export default function AdminDashboard() {
         }
     };
 
+    const formatK = (val) => val > 0 ? (val >= 1000 ? (val/1000).toFixed(1) + 'k' : Math.floor(val)) : '0';
+
     return (
         <AdminLayout>
+            <style>{`
+                @keyframes admin-disposal-fire-sway {
+                    0%, 100% { transform: rotate(-9deg) scale(1); }
+                    50% { transform: rotate(9deg) scale(1.05); }
+                }
+                .admin-disposal-fire {
+                    transform-origin: 50% 90%;
+                    animation: admin-disposal-fire-sway 1.8s infinite ease-in-out;
+                    filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.6));
+                }
+                @media (prefers-reduced-motion: reduce) {
+                    .admin-disposal-fire { animation: none; }
+                }
+            `}</style>
+
             <div className="relative font-sans z-0 min-h-[calc(100vh-6rem)] bg-slate-50/80 backdrop-blur-[24px] rounded-[32px] border border-white/60 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden p-6 mb-4">
 
                 <div className="absolute inset-0 z-[-3] opacity-[0.03] pointer-events-none mix-blend-multiply"
@@ -352,7 +478,7 @@ export default function AdminDashboard() {
                                 Welcome back, {user?.firstName || 'Admin'}! <span className="animate-bounce inline-block origin-bottom-right">👋</span>
                             </h2>
                             <p className="text-[14px] text-slate-600 font-medium max-w-xl leading-relaxed">
-                                You've processed <strong className="text-sky-600">{todaySales.length} sales</strong> today, generating a revenue of <strong className="text-emerald-600">LKR {Number(todayRevenue).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>. Keep up the great work and maintain your pharmacy's efficiency!
+                                You've processed <strong className="text-sky-600">{todaySales.length} sales</strong> today, generating a total net income of <strong className="text-emerald-600">LKR {Number(totalNetIncome).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>. Keep up the great work and maintain your pharmacy's efficiency!
                             </p>
                         </div>
 
@@ -366,19 +492,37 @@ export default function AdminDashboard() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="col-span-1 h-[240px]"><MedicalHeroCard revenue={todayRevenue} /></div>
-                        <div className="col-span-1 h-[240px]"><SparklineCard revenue={mtdRevenue} chartData={dynamicSparklineData} /></div>
-                        <div className="col-span-1 h-[240px]">
-                            <EfficiencyCard spent={0} budget={0} />
+                        <div className="col-span-1 md:col-span-1 h-[240px]"><MedicalHeroCard revenue={totalNetIncome} /></div>
+                        <div className="col-span-1 md:col-span-1 h-[240px]"><SparklineCard revenue={totalSalesRevenue} chartData={dynamicSparklineData} /></div>
+                        <div className="col-span-1 md:col-span-1 h-[240px]">
+                            <EfficiencyCard spent={totalPaidToSuppliers} budget={totalPurchases} />
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
-                        <SmallStatCard title="Transactions" value={salesData.totalElements} icon={ShoppingBag} iconColor="text-blue-500" />
-                        <SmallStatCard title="Low-Stock" value={lowStockCount} icon={AlertTriangle} iconColor="text-rose-500" />
-                        <SmallStatCard title="Expiring (30d)" value={expiringCount} icon={Clock} iconColor="text-amber-500" />
-                        <SmallStatCard title="Pending Presc." value="0" icon={FileText} iconColor="text-teal-500" />
-                        <SmallStatCard title="Dispensed" value={completedSales.length} icon={Activity} iconColor="text-sky-500" />
+                    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+                        <div className="bg-white/40 backdrop-blur-xl p-6 rounded-[28px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/60 flex flex-col justify-between transition-transform duration-300 hover:-translate-y-1 h-[240px] cursor-default relative">
+                            <div className="flex justify-between items-start">
+                                <h3 className="text-[#1e293b] text-[15px] font-bold tracking-tight">Disposed Medicines</h3>
+                                <MoreHorizontal size={18} className="text-slate-400 cursor-pointer hover:text-slate-600 transition-colors" />
+                            </div>
+                            <div className="relative h-[120px] w-full flex items-center justify-center mt-2">
+                                <div className="absolute w-20 h-20 bg-rose-500/15 rounded-full blur-xl pointer-events-none"></div>
+                                <Flame size={88} strokeWidth={1.5} className="text-rose-500 admin-disposal-fire relative z-10" aria-hidden="true" />
+                            </div>
+                            <div className="flex flex-col items-center justify-center gap-1 mt-2">
+                                <h2 className="text-[22px] font-normal text-rose-600 leading-none tracking-tight">{totalDisposedCount}</h2>
+                                <p className="text-[11px] font-medium text-slate-500">Total Items · Written Off</p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:col-span-3">
+                            <SmallStatCard title="Transactions" value={salesData.totalElements || analyticsSales.length} icon={ShoppingBag} iconColor="text-blue-500" />
+                            <SmallStatCard title="Low-Stock" value={lowStockCount} icon={AlertTriangle} iconColor="text-rose-500" />
+                            <SmallStatCard title="Expiring (30d)" value={expiringCount} icon={Clock} iconColor="text-amber-500" />
+                            <SmallStatCard title="To Pay (Credit)" value={formatK(totalSupplierPayable)} icon={CreditCard} iconColor="text-rose-500" />
+                            <SmallStatCard title="Pending Credit" value={formatK(totalPendingCredit)} icon={DollarSign} iconColor="text-teal-500" />
+                            <SmallStatCard title="Dispensed" value={analyticsSales.length} icon={Activity} iconColor="text-sky-500" />
+                        </div>
                     </div>
 
                     <div className="bg-white/30 backdrop-blur-2xl p-7 rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50">
@@ -393,18 +537,24 @@ export default function AdminDashboard() {
                             </div>
                         </div>
 
-                        <div className="h-[300px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={dynamicMainChartData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }} barGap={6}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ffffff" opacity={0.4} />
-                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }} dy={15} />
-                                    <YAxis width={65} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 500 }} dx={-5} />
-                                    <Tooltip cursor={{ fill: 'rgba(255,255,255,0.2)' }} contentStyle={{ borderRadius: '16px', border: '1px solid rgba(255,255,255,0.4)', backdropFilter: 'blur(10px)', backgroundColor: 'rgba(255,255,255,0.6)', boxShadow: '0 12px 32px -8px rgba(0,0,0,0.08)', fontSize: '13px', fontWeight: '600', color: '#1e293b', padding: '10px 14px' }} />
-                                    <Bar dataKey="revenue" fill="#0ea5e9" radius={[8, 8, 8, 8]} barSize={12} animationDuration={1500} />
-                                    <Bar dataKey="cost" fill="#99f6e4" radius={[8, 8, 8, 8]} barSize={12} animationDuration={1500} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
+                        {!chartReady ? (
+                            <div className="h-[300px] flex items-center justify-center text-sm text-slate-500" role="status">
+                                {chartError ? 'Unable to load chart data.' : 'Loading chart history...'}
+                            </div>
+                        ) : (
+                            <div className="h-[300px] w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={dynamicMainChartData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }} barGap={6}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ffffff" opacity={0.4} />
+                                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }} dy={15} />
+                                        <YAxis width={65} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 500 }} dx={-5} />
+                                        <Tooltip cursor={{ fill: 'rgba(255,255,255,0.2)' }} contentStyle={{ borderRadius: '16px', border: '1px solid rgba(255,255,255,0.4)', backdropFilter: 'blur(10px)', backgroundColor: 'rgba(255,255,255,0.6)', boxShadow: '0 12px 32px -8px rgba(0,0,0,0.08)', fontSize: '13px', fontWeight: '600', color: '#1e293b', padding: '10px 14px' }} />
+                                        <Bar dataKey="revenue" fill="#0ea5e9" radius={[8, 8, 8, 8]} barSize={12} animationDuration={1500} />
+                                        <Bar dataKey="cost" fill="#99f6e4" radius={[8, 8, 8, 8]} barSize={12} animationDuration={1500} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        )}
                     </div>
 
                     <div className="bg-white/30 backdrop-blur-2xl rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 overflow-hidden flex flex-col mt-4">
