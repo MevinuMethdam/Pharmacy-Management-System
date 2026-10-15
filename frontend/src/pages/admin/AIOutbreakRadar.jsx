@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import AdminLayout from '../../components/layout/AdminLayout';
-import { Radar, AlertTriangle, ShieldCheck, TrendingUp, Package, Activity, RefreshCw, BarChart2, CheckCircle, Map } from 'lucide-react';
+import { Radar, AlertTriangle, ShieldCheck, TrendingUp, Activity, RefreshCw, BarChart2, CheckCircle, Map } from 'lucide-react';
 import axios from '../../api/axiosInstance';
 import toast from 'react-hot-toast';
 import Highcharts from 'highcharts';
@@ -28,6 +28,167 @@ const slCoordinates = {
     "Badulla": { lat: 6.9934, lon: 81.0550 },
     "Batticaloa": { lat: 7.7170, lon: 81.6999 },
     "Trincomalee": { lat: 8.5874, lon: 81.2152 }
+};
+
+const NewsImageSlideshow = ({ images }) => {
+    const [slideIndex, setSlideIndex] = useState(0);
+    const [paused, setPaused] = useState(false);
+    const [failedUrls, setFailedUrls] = useState([]);
+    const [retryVersion, setRetryVersion] = useState(0);
+
+    const receivedImages = Array.isArray(images) ? images : [];
+
+    const seen = new Set();
+
+    const validImages = receivedImages.reduce((result, item) => {
+        if (!item || typeof item.imageUrl !== 'string') {
+            return result;
+        }
+
+        try {
+            const url = new URL(item.imageUrl.trim());
+
+            if (!['https:', 'http:'].includes(url.protocol)) {
+                return result;
+            }
+
+            const imageUrl = url.href;
+
+            if (seen.has(imageUrl)) {
+                return result;
+            }
+
+            seen.add(imageUrl);
+
+            result.push({
+                ...item,
+                imageUrl
+            });
+        } catch {
+        }
+
+        return result;
+    }, []);
+
+    const slides = validImages.filter(
+        item => !failedUrls.includes(item.imageUrl)
+    );
+
+    const slideKey = JSON.stringify(
+        slides.map(item => item.imageUrl)
+    );
+
+    useEffect(() => {
+        setFailedUrls([]);
+        setSlideIndex(0);
+        setRetryVersion(version => version + 1);
+    }, [images]);
+
+    useEffect(() => {
+        setSlideIndex(0);
+    }, [slideKey]);
+
+    useEffect(() => {
+        if (paused || slides.length < 2) return;
+
+        const timer = window.setInterval(() => {
+            setSlideIndex(index => (index + 1) % slides.length);
+        }, 6000);
+
+        return () => window.clearInterval(timer);
+    }, [slideKey, slides.length, paused]);
+
+    const currentIndex = slides.length
+        ? slideIndex % slides.length
+        : 0;
+
+    const currentSlide = slides[currentIndex];
+
+    let emptyMessage = 'No news pictures available.';
+
+    if (!Array.isArray(images)) {
+        emptyMessage = 'News image data is unavailable.';
+    } else if (receivedImages.length === 0) {
+        emptyMessage = 'No news pictures were returned for this analysis.';
+    } else if (validImages.length === 0) {
+        emptyMessage = 'No usable news picture URLs were returned.';
+    } else if (slides.length === 0) {
+        emptyMessage = 'News pictures could not be loaded.';
+    }
+
+    const retryImages = () => {
+        setFailedUrls([]);
+        setSlideIndex(0);
+        setRetryVersion(version => version + 1);
+    };
+
+    return (
+        <div
+            className="w-full h-[240px] sm:h-[320px] lg:h-[400px] shrink-0 rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 relative"
+            role="region"
+            aria-label="News article pictures"
+        >
+            {currentSlide ? (
+                <>
+                    <img
+                        key={`${currentSlide.imageUrl}-${retryVersion}`}
+                        src={currentSlide.imageUrl}
+                        referrerPolicy="no-referrer"
+                        alt={
+                            typeof currentSlide.title === 'string'
+                                ? currentSlide.title
+                                : 'News article image'
+                        }
+                        className="w-full h-full object-cover"
+                        onError={() => {
+                            const failedUrl = currentSlide.imageUrl;
+
+                            setFailedUrls(previous =>
+                                previous.includes(failedUrl)
+                                    ? previous
+                                    : [...previous, failedUrl]
+                            );
+                        }}
+                    />
+
+                    {slides.length > 1 && (
+                        <div className="absolute bottom-0 inset-x-0 flex items-center justify-between gap-2 px-3 py-2 bg-slate-900/70 text-white">
+                            <span className="text-[11px] font-semibold">
+                                {currentIndex + 1} / {slides.length}
+                            </span>
+
+                            <button
+                                type="button"
+                                onClick={() => setPaused(value => !value)}
+                                className="text-[11px] font-bold rounded px-2 py-1 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+                                aria-label={
+                                    paused
+                                        ? 'Resume picture slideshow'
+                                        : 'Pause picture slideshow'
+                                }
+                            >
+                                {paused ? 'Play' : 'Pause'}
+                            </button>
+                        </div>
+                    )}
+                </>
+            ) : (
+                <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-4 text-[12px] font-medium text-slate-500">
+                    <p>{emptyMessage}</p>
+
+                    {validImages.length > 0 && (
+                        <button
+                            type="button"
+                            onClick={retryImages}
+                            className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-blue-600 font-bold hover:bg-blue-50 transition-colors"
+                        >
+                            Retry pictures
+                        </button>
+                    )}
+                </div>
+            )}
+        </div>
+    );
 };
 
 export default function AIOutbreakRadar() {
@@ -63,12 +224,16 @@ export default function AIOutbreakRadar() {
     const fetchAIAnalysis = async () => {
         setLoading(true);
         try {
-            const res = await axios.get('http://localhost:5000/api/ai-outbreak/analyze');
+            const res = await axios.get('http://localhost:5000/api/ai-outbreak/analyze', { timeout: 180000 });
             setAiData(res.data);
-            toast.success('Live News Scanned & AI Analysis Updated!', { icon: '🤖' });
+            if (Array.isArray(res.data.newsImages) && res.data.newsImages.length > 0) {
+                toast.success('Live News & Article Pictures Updated!', { icon: '🤖' });
+            } else {
+                toast('Analysis updated. Article pictures are unavailable. Check the backend news-image diagnostics.', { icon: 'ℹ️', duration: 6000 });
+            }
         } catch (err) {
-            if (!axios.isCancel(err)) {
-                toast.error('Failed to load new Analysis. Showing latest saved data.');
+            if (err.code !== 'ERR_CANCELED') {
+                toast.error(err.response?.data?.error || 'Failed to load new analysis. Please try again.');
                 console.error(err);
             }
         } finally {
@@ -195,7 +360,7 @@ export default function AIOutbreakRadar() {
 
         const data = trends.map(t => {
             const conf = t.confidenceLevel || '0%';
-            return parseFloat(conf.replace('%', '')) || 0;
+            return parseFloat(String(conf).replace('%', '')) || 0;
         });
 
         return {
@@ -295,13 +460,9 @@ export default function AIOutbreakRadar() {
                     ) : aiData ? (
                         <div className="space-y-6">
 
-                            <div className="bg-white/30 backdrop-blur-2xl p-7 rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 flex flex-col md:flex-row gap-6 items-center">
-                                <div className={`flex flex-col items-center justify-center min-w-[150px] p-5 rounded-2xl border shadow-sm ${getRiskColors(aiData.riskLevel)}`}>
-                                    <Activity size={32} strokeWidth={2.5} className="mb-2" />
-                                    <span className="text-[11px] uppercase tracking-wider font-bold opacity-80">Risk Level</span>
-                                    <span className="text-[22px] font-black">{aiData.riskLevel}</span>
-                                </div>
-                                <div>
+                            <div className="bg-white/30 backdrop-blur-2xl p-7 rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 flex flex-col gap-6">
+                                <NewsImageSlideshow images={aiData.newsImages} />
+                                <div className="w-full">
                                     <h2 className="text-[18px] font-bold text-slate-800 mb-2 flex items-center gap-2">
                                         <ShieldCheck className="text-blue-500" size={20} /> Real-World Executive Summary
                                     </h2>
@@ -375,12 +536,11 @@ export default function AIOutbreakRadar() {
                                     <table className="w-full text-left border-collapse table-fixed">
                                         <thead>
                                         <tr>
-                                            <th className="w-[35%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight pr-6">Disease / Pattern</th>
-                                            <th className="w-[10%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Severity /<br/>Confidence</th>
-                                            <th className="w-[20%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight pr-6">Required<br/>Medicines</th>
-                                            <th className="w-[12%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight text-center">Inventory<br/>Status</th>
+                                            <th className="w-[40%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight pr-6">Disease / Pattern</th>
+                                            <th className="w-[12%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Severity /<br/>Confidence</th>
+                                            <th className="w-[23%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight pr-6">Required<br/>Medicines</th>
+                                            <th className="w-[15%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight text-center">Inventory<br/>Status</th>
                                             <th className="w-[10%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight text-center">Alerts</th>
-                                            <th className="w-[13%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight text-right">Action</th>
                                         </tr>
                                         </thead>
                                         <tbody>
@@ -397,7 +557,7 @@ export default function AIOutbreakRadar() {
 
                                                 const cleanCurrent = parseFloat(String(currentStock).replace(/[^0-9.]/g, ''));
                                                 const cleanRequired = parseFloat(String(requiredStock).replace(/[^0-9.]/g, ''));
-                                                const isStockLow = isNaN(cleanCurrent) || currentStock?.toLowerCase() === 'not in stock' || cleanCurrent < cleanRequired;
+                                                const isStockLow = isNaN(cleanCurrent) || String(currentStock).toLowerCase() === 'not in stock' || cleanCurrent < cleanRequired;
 
                                                 return (
                                                     <tr key={idx} className="group hover:bg-white/40 transition-colors border-b border-white/40 last:border-0">
@@ -428,7 +588,7 @@ export default function AIOutbreakRadar() {
                                                                 <div className="flex flex-col gap-1.5 items-center mt-1">
                                                                     <span className="text-[10px] uppercase font-bold text-slate-400">Current vs Req</span>
                                                                     <span className={`text-[13px] font-black flex items-center justify-center gap-2 ${isStockLow ? 'text-rose-600' : 'text-emerald-600'}`}>
-                                                                        {currentStock === '0' || currentStock?.toLowerCase() === 'not in stock' ? 'Not in Stock' : cleanCurrent}
+                                                                        {currentStock === '0' || String(currentStock).toLowerCase() === 'not in stock' ? 'Not in Stock' : cleanCurrent}
                                                                         <span className="text-slate-400 text-[10px] font-bold">→</span>
                                                                         {cleanRequired || requiredStock}
                                                                     </span>
@@ -458,19 +618,12 @@ export default function AIOutbreakRadar() {
                                                                 </div>
                                                             )}
                                                         </td>
-                                                        <td className="py-6 align-top text-right">
-                                                            <div className="flex justify-end mt-1">
-                                                                <button className="flex items-center gap-2 px-4 py-2 bg-white text-blue-600 rounded-xl text-[11px] font-bold uppercase tracking-wider hover:bg-blue-50 transition-colors border border-blue-200 shadow-sm cursor-pointer">
-                                                                    <Package size={14} strokeWidth={2.5} /> Order Stock
-                                                                </button>
-                                                            </div>
-                                                        </td>
                                                     </tr>
                                                 );
                                             })
                                         ) : (
                                             <tr>
-                                                <td colSpan="6" className="text-center py-16 text-slate-500 font-medium text-[13px]">
+                                                <td colSpan="5" className="text-center py-16 text-slate-500 font-medium text-[13px]">
                                                     <div className="flex flex-col items-center justify-center gap-2">
                                                         <ShieldCheck size={24} className="text-slate-400 opacity-50"/>
                                                         No active outbreak trends identified in the database.
