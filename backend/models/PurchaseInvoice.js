@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/db');
+const Medicine = require('./Medicine');
 
 const PurchaseInvoice = sequelize.define('PurchaseInvoice', {
     id: {
@@ -10,20 +11,55 @@ const PurchaseInvoice = sequelize.define('PurchaseInvoice', {
     invoiceNumber: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: 'idx_unique_invoice_number'
     },
     grnNumber: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: 'idx_unique_grn_number'
     },
     supplierId: {
         type: DataTypes.INTEGER,
+        allowNull: false
+    },
+    supplierName: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    nmraLicense: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    medicineId: {
+        type: DataTypes.INTEGER,
+        allowNull: false
+    },
+    name: {
+        type: DataTypes.STRING,
         allowNull: false,
-        references: {
-            model: 'suppliers',
-            key: 'id'
-        }
+        defaultValue: 'Unknown'
+    },
+    genericName: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    batchNumber: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    expiryDate: {
+        type: DataTypes.DATEONLY,
+        allowNull: false
+    },
+    quantity: {
+        type: DataTypes.INTEGER,
+        allowNull: false
+    },
+    unit: {
+        type: DataTypes.STRING,
+        defaultValue: 'Tablets'
+    },
+    costPrice: {
+        type: DataTypes.DECIMAL(10, 2),
+        allowNull: false
     },
     invoiceDate: {
         type: DataTypes.DATEONLY,
@@ -57,7 +93,22 @@ const PurchaseInvoice = sequelize.define('PurchaseInvoice', {
     }
 }, {
     tableName: 'purchase_invoices',
-    timestamps: true
+    timestamps: true,
+
+indexes: [
+    {
+        unique: true,
+        fields: ['invoiceNumber'],
+        name: 'uq_purchase_invoice_number'
+    },
+    {
+        unique: true,
+        fields: ['grnNumber'],
+        name: 'uq_purchase_grn_number'
+    }
+]
 });
+
+PurchaseInvoice.belongsTo(Medicine, { foreignKey: 'medicineId', as: 'medicine' });
 
 module.exports = PurchaseInvoice;
