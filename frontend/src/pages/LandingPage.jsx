@@ -19,6 +19,8 @@ import {
     Clock
 } from "lucide-react";
 
+import LandingChatbot from "../components/chatbot/LandingChatbot";
+
 import logoImage from "../assets/logo.png";
 import landingImage from "../assets/landing.png";
 
@@ -464,6 +466,7 @@ export default function LandingPage() {
             <Features />
             <FinalCTA />
             <Footer logoSrc={logoImage} />
+            <LandingChatbot />
         </div>
     );
 }
