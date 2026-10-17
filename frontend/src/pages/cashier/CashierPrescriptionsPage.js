@@ -5,13 +5,13 @@ import { salesApi } from '../../api/salesApi';
 import axios from '../../api/axiosInstance';
 import {
     BarChart3, Download, TrendingUp, TrendingDown, Package,
-    CheckCircle, Ban, Search, FileText, CalendarClock, Users, Pill, AlertTriangle, FileSignature, Filter, Activity,
-    Sparkles, Edit, X, User, CreditCard, Stethoscope, MessageSquare, Plus, UploadCloud, ShieldAlert, Image as ImageIcon,
+    CheckCircle, Ban, Search, FileText, CalendarClock, Users, Pill,
+    AlertTriangle, FileSignature, Filter, Activity,
+    Sparkles, Edit, X, User, CreditCard, Stethoscope, MessageSquare,
+    Plus, UploadCloud, ShieldAlert, Image as ImageIcon,
     Eye, Trash2, Clock, Calendar, FileCheck, Printer
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import Highcharts from 'highcharts';
-import HighchartsReact from 'highcharts-react-official';
 
 const AnimatedNumber = ({ value, isCurrency = false }) => {
     const [displayValue, setDisplayValue] = useState(0);
@@ -20,6 +20,7 @@ const AnimatedNumber = ({ value, isCurrency = false }) => {
     useEffect(() => {
         const start = prevValue.current;
         const end = parseFloat(value) || 0;
+
         if (start === end) {
             setDisplayValue(end);
             return;
@@ -30,7 +31,12 @@ const AnimatedNumber = ({ value, isCurrency = false }) => {
 
         const step = (timestamp) => {
             if (!startTimestamp) startTimestamp = timestamp;
-            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+
+            const progress = Math.min(
+                (timestamp - startTimestamp) / duration,
+                1
+            );
+
             const easeProgress = 1 - Math.pow(1 - progress, 4);
             const currentVal = start + (easeProgress * (end - start));
 
@@ -47,7 +53,11 @@ const AnimatedNumber = ({ value, isCurrency = false }) => {
         window.requestAnimationFrame(step);
     }, [value]);
 
-    return <span>{isCurrency ? displayValue.toFixed(2) : Math.round(displayValue)}</span>;
+    return (
+        <span>
+            {isCurrency ? displayValue.toFixed(2) : Math.round(displayValue)}
+        </span>
+    );
 };
 
 const COMMON_SPECIALIZATIONS = [
@@ -72,6 +82,188 @@ const COMMON_SPECIALIZATIONS = [
     "Ayurvedic Doctor"
 ];
 
+function PatientSearchInput({ customers, value, onSelect }) {
+    const [query, setQuery] = useState(null);
+    const [isOpen, setIsOpen] = useState(false);
+    const [activeIndex, setActiveIndex] = useState(-1);
+    const listRef = useRef(null);
+
+    const patientName = patient =>
+        patient.name ||
+        patient.customerName ||
+        patient.patientName ||
+        `Patient #${patient.id}`;
+
+    const selectedPatient = customers.find(
+        patient => String(patient.id) === String(value)
+    );
+
+    const displayValue = query !== null
+        ? query
+        : selectedPatient
+            ? `${patientName(selectedPatient)} (ID: ${selectedPatient.id})`
+            : value
+                ? `Patient #${value}`
+                : '';
+
+    const search = (query || '').trim().toLowerCase();
+
+    const matches = useMemo(() => {
+        if (!search) return [];
+
+        return customers.filter(patient => {
+            const name = String(
+                patient.name ||
+                patient.customerName ||
+                patient.patientName ||
+                ''
+            ).toLowerCase();
+
+            const id = String(patient.id);
+
+            return name.includes(search) ||
+                id.includes(search.replace(/^#/, '') || search);
+        });
+    }, [customers, search]);
+
+    const showSuggestions = isOpen && search.length > 0;
+
+    useEffect(() => {
+        if (value) setQuery(null);
+    }, [value]);
+
+    useEffect(() => {
+        if (activeIndex >= 0) {
+            listRef.current?.children[activeIndex]?.scrollIntoView({
+                block: 'nearest'
+            });
+        }
+    }, [activeIndex]);
+
+    const choosePatient = patient => {
+        onSelect(patient);
+        setQuery(null);
+        setIsOpen(false);
+        setActiveIndex(-1);
+    };
+
+    return (
+        <div
+            className="relative"
+            onBlur={event => {
+                if (!event.currentTarget.contains(event.relatedTarget)) {
+                    setIsOpen(false);
+                    setActiveIndex(-1);
+                }
+            }}
+        >
+            <input
+                id="rx-patient-search"
+                type="text"
+                required
+                autoComplete="off"
+                role="combobox"
+                aria-label="Search patient by name or ID"
+                aria-autocomplete="list"
+                aria-expanded={showSuggestions}
+                aria-controls="rx-patient-suggestions"
+                aria-activedescendant={
+                    showSuggestions &&
+                    activeIndex >= 0 &&
+                    activeIndex < matches.length
+                        ? `rx-patient-option-${activeIndex}`
+                        : undefined
+                }
+                placeholder="Type patient name or ID..."
+                className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[13px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm backdrop-blur-sm"
+                value={displayValue}
+                onChange={event => {
+                    setQuery(event.target.value);
+                    setIsOpen(true);
+                    setActiveIndex(-1);
+                    onSelect(null);
+                }}
+                onFocus={() => setIsOpen(true)}
+                onKeyDown={event => {
+                    if (
+                        event.key === 'ArrowDown' ||
+                        event.key === 'ArrowUp'
+                    ) {
+                        event.preventDefault();
+                        setIsOpen(true);
+
+                        if (matches.length) {
+                            setActiveIndex(index =>
+                                event.key === 'ArrowDown'
+                                    ? (index + 1) % matches.length
+                                    : (index <= 0 ? matches.length : index) - 1
+                            );
+                        }
+                    } else if (
+                        event.key === 'Enter' &&
+                        showSuggestions
+                    ) {
+                        event.preventDefault();
+
+                        if (
+                            activeIndex >= 0 &&
+                            matches[activeIndex]
+                        ) {
+                            choosePatient(matches[activeIndex]);
+                        }
+                    } else if (event.key === 'Escape') {
+                        setIsOpen(false);
+                        setActiveIndex(-1);
+                    }
+                }}
+            />
+
+            {showSuggestions && (
+                <div className="absolute left-0 right-0 top-full mt-2 z-50 overflow-hidden rounded-2xl border border-indigo-100 bg-white shadow-xl">
+                    <div
+                        id="rx-patient-suggestions"
+                        role="listbox"
+                        aria-label="Matching CRM patients"
+                        ref={listRef}
+                        className="max-h-56 overflow-y-auto"
+                    >
+                        {matches.map((patient, index) => (
+                            <button
+                                key={patient.id}
+                                id={`rx-patient-option-${index}`}
+                                type="button"
+                                role="option"
+                                aria-selected={index === activeIndex}
+                                tabIndex={-1}
+                                onMouseDown={event => event.preventDefault()}
+                                onClick={() => choosePatient(patient)}
+                                className={`block w-full px-4 py-3 text-left border-b border-slate-100 last:border-0 hover:bg-indigo-50 cursor-pointer ${index === activeIndex ? 'bg-indigo-50' : 'bg-white'}`}
+                            >
+                                <span className="block text-[13px] font-bold text-slate-700">
+                                    {patientName(patient)}
+                                </span>
+
+                                <span className="block text-[11px] text-slate-500 mt-0.5">
+                                    Patient ID: {patient.id}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+
+                    {matches.length === 0 && (
+                        <p
+                            role="status"
+                            className="px-4 py-3 text-[12px] text-slate-500"
+                        >
+                            No matching CRM patients found.
+                        </p>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function CashierPrescriptionsPage() {
     const [prescriptions, setPrescriptions] = useState([]);
     const [allSales, setAllSales] = useState([]);
@@ -94,7 +286,14 @@ export default function CashierPrescriptionsPage() {
     const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
     const [showVerifyModal, setShowVerifyModal] = useState(false);
     const [selectedAIRx, setSelectedAIRx] = useState(null);
-    const [extractedData, setExtractedData] = useState({ patient: '', doctor: '', medicines: [] });
+
+    const [extractedData, setExtractedData] = useState({
+        patient: '',
+        nic: '',
+        contactNumber: '',
+        doctor: '',
+        medicines: []
+    });
 
     const [form, setForm] = useState({
         patientId: '',
@@ -106,7 +305,14 @@ export default function CashierPrescriptionsPage() {
         status: 'Pending',
         digitalCopyUrl: '',
         notes: '',
-        items: [{ medicineId: '', medicineName: '', quantity: 1, dosageM: '', dosageA: '', dosageN: '' }]
+        items: [{
+            medicineId: '',
+            medicineName: '',
+            quantity: 1,
+            dosageM: '',
+            dosageA: '',
+            dosageN: ''
+        }]
     });
 
     useEffect(() => {
@@ -118,15 +324,25 @@ export default function CashierPrescriptionsPage() {
 
     const fetchDashboardData = async () => {
         setLoading(true);
+
         try {
-            const salesRes = await salesApi.list({ page: 0, size: 5000 });
-            const salesData = Array.isArray(salesRes.data) ? salesRes.data : (salesRes.data?.content || []);
+            const salesRes = await salesApi.list({
+                page: 0,
+                size: 5000
+            });
+
+            const salesData = Array.isArray(salesRes.data)
+                ? salesRes.data
+                : (salesRes.data?.content || []);
+
             setAllSales(salesData);
 
-            const customersRes = await axios.get('http://localhost:5000/api/crm/customers');
+            const customersRes = await axios.get(
+                'http://localhost:5000/api/crm/customers'
+            );
+
             const customersData = customersRes.data || [];
             setAllCustomers(customersData);
-
         } catch (err) {
             console.error('Failed to load report data', err);
             toast.error('Failed to load report data from server');
@@ -137,7 +353,10 @@ export default function CashierPrescriptionsPage() {
 
     const fetchPrescriptions = async () => {
         try {
-            const res = await axios.get('http://localhost:5000/api/prescriptions');
+            const res = await axios.get(
+                'http://localhost:5000/api/prescriptions'
+            );
+
             setPrescriptions(res.data || []);
         } catch (err) {
             console.error('Failed to load prescriptions', err);
@@ -147,12 +366,26 @@ export default function CashierPrescriptionsPage() {
     const fetchPatients = async () => {
         try {
             let res;
+
             try {
-                res = await axios.get('http://localhost:5000/api/customers');
+                res = await axios.get(
+                    'http://localhost:5000/api/customers'
+                );
             } catch (err) {
-                res = await axios.get('http://localhost:5000/api/crm/customers');
+                res = await axios.get(
+                    'http://localhost:5000/api/crm/customers'
+                );
             }
-            const data = Array.isArray(res.data) ? res.data : (res.data?.customers || res.data?.data || res.data?.content || []);
+
+            const data = Array.isArray(res.data)
+                ? res.data
+                : (
+                    res.data?.customers ||
+                    res.data?.data ||
+                    res.data?.content ||
+                    []
+                );
+
             setPatients(data);
         } catch (err) {
             console.error("Patient fetch error:", err);
@@ -161,9 +394,15 @@ export default function CashierPrescriptionsPage() {
 
     const fetchMedicines = async () => {
         try {
-            const res = await axios.get('http://localhost:5000/api/medicines');
+            const res = await axios.get(
+                'http://localhost:5000/api/medicines'
+            );
+
             if (res && res.data) {
-                const data = Array.isArray(res.data) ? res.data : (res.data.content || res.data.medicines || []);
+                const data = Array.isArray(res.data)
+                    ? res.data
+                    : (res.data.content || res.data.medicines || []);
+
                 setMedicines(data);
             }
         } catch (err) {
@@ -178,7 +417,20 @@ export default function CashierPrescriptionsPage() {
     };
 
     const addItemRow = () => {
-        setForm({ ...form, items: [...form.items, { medicineId: '', medicineName: '', quantity: 1, dosageM: '', dosageA: '', dosageN: '' }] });
+        setForm({
+            ...form,
+            items: [
+                ...form.items,
+                {
+                    medicineId: '',
+                    medicineName: '',
+                    quantity: 1,
+                    dosageM: '',
+                    dosageA: '',
+                    dosageN: ''
+                }
+            ]
+        });
     };
 
     const removeItemRow = (index) => {
@@ -189,15 +441,34 @@ export default function CashierPrescriptionsPage() {
     const closeModal = () => {
         setIsAddModalOpen(false);
         setEditingRxId(null);
+
         setForm({
-            patientId: '', patientNic: '', doctorName: '', doctorSpecialization: '', doctorContactNumber: '',
-            prescriptionDate: new Date().toISOString().split('T')[0], status: 'Pending', digitalCopyUrl: '', notes: '',
-            items: [{ medicineId: '', medicineName: '', quantity: 1, dosageM: '', dosageA: '', dosageN: '' }]
+            patientId: '',
+            patientNic: '',
+            doctorName: '',
+            doctorSpecialization: '',
+            doctorContactNumber: '',
+            prescriptionDate: new Date().toISOString().split('T')[0],
+            status: 'Pending',
+            digitalCopyUrl: '',
+            notes: '',
+            items: [{
+                medicineId: '',
+                medicineName: '',
+                quantity: 1,
+                dosageM: '',
+                dosageA: '',
+                dosageN: ''
+            }]
         });
     };
 
     const getItemsFromRx = (rx) => {
-        if (rx.prescribedMedicines && Array.isArray(rx.prescribedMedicines) && rx.prescribedMedicines.length > 0) {
+        if (
+            rx.prescribedMedicines &&
+            Array.isArray(rx.prescribedMedicines) &&
+            rx.prescribedMedicines.length > 0
+        ) {
             return rx.prescribedMedicines;
         }
 
@@ -205,21 +476,29 @@ export default function CashierPrescriptionsPage() {
             const ids = rx.medicineIds ? rx.medicineIds.split(',') : [];
             const names = rx.medicineNames.split(',');
             const qts = rx.quantities ? rx.quantities.split(',') : [];
-            const dosages = rx.dosageInstructions ? rx.dosageInstructions.split(' || ') : [];
+
+            const dosages = rx.dosageInstructions
+                ? rx.dosageInstructions.split(' || ')
+                : [];
 
             const items = [];
+
             for (let i = 0; i < names.length; i++) {
                 if (names[i].trim() !== '') {
                     items.push({
                         medicineId: ids[i] && ids[i] !== 'null' ? ids[i] : '',
                         medicineName: names[i].trim(),
                         quantity: qts[i] ? parseInt(qts[i]) : 1,
-                        dosageInstructions: dosages[i] ? dosages[i].trim() : ''
+                        dosageInstructions: dosages[i]
+                            ? dosages[i].trim()
+                            : ''
                     });
                 }
             }
+
             return items;
         }
+
         return [];
     };
 
@@ -228,27 +507,41 @@ export default function CashierPrescriptionsPage() {
 
         const rxItems = getItemsFromRx(rx);
 
-        const parsedItems = (rxItems && rxItems.length > 0) ? rxItems.map(item => {
-            let dosageM = '', dosageA = '', dosageN = '';
-            if (item.dosageInstructions) {
-                const parts = item.dosageInstructions.split(' | ');
-                if (parts.length === 3) {
-                    dosageM = parts[0].replace('Morn:', '').trim();
-                    dosageA = parts[1].replace('Noon:', '').trim();
-                    dosageN = parts[2].replace('Night:', '').trim();
-                } else {
-                    dosageM = item.dosageInstructions;
+        const parsedItems = (rxItems && rxItems.length > 0)
+            ? rxItems.map(item => {
+                let dosageM = '';
+                let dosageA = '';
+                let dosageN = '';
+
+                if (item.dosageInstructions) {
+                    const parts = item.dosageInstructions.split(' | ');
+
+                    if (parts.length === 3) {
+                        dosageM = parts[0].replace('Morn:', '').trim();
+                        dosageA = parts[1].replace('Noon:', '').trim();
+                        dosageN = parts[2].replace('Night:', '').trim();
+                    } else {
+                        dosageM = item.dosageInstructions;
+                    }
                 }
-            }
-            return {
-                medicineId: item.medicineId || '',
-                medicineName: item.medicineName || '',
-                quantity: item.quantity || 1,
-                dosageM: dosageM === '-' ? '' : dosageM,
-                dosageA: dosageA === '-' ? '' : dosageA,
-                dosageN: dosageN === '-' ? '' : dosageN
-            };
-        }) : [{ medicineId: '', medicineName: '', quantity: 1, dosageM: '', dosageA: '', dosageN: '' }];
+
+                return {
+                    medicineId: item.medicineId || '',
+                    medicineName: item.medicineName || '',
+                    quantity: item.quantity || 1,
+                    dosageM: dosageM === '-' ? '' : dosageM,
+                    dosageA: dosageA === '-' ? '' : dosageA,
+                    dosageN: dosageN === '-' ? '' : dosageN
+                };
+            })
+            : [{
+                medicineId: '',
+                medicineName: '',
+                quantity: 1,
+                dosageM: '',
+                dosageA: '',
+                dosageN: ''
+            }];
 
         setForm({
             patientId: rx.patientId || '',
@@ -256,7 +549,8 @@ export default function CashierPrescriptionsPage() {
             doctorName: rx.doctorName || '',
             doctorSpecialization: rx.doctorSpecialization || '',
             doctorContactNumber: rx.doctorContactNumber || '',
-            prescriptionDate: rx.prescriptionDate || new Date().toISOString().split('T')[0],
+            prescriptionDate: rx.prescriptionDate ||
+                new Date().toISOString().split('T')[0],
             status: rx.status || 'Pending',
             digitalCopyUrl: rx.digitalCopyUrl || '',
             notes: rx.notes || '',
@@ -267,14 +561,24 @@ export default function CashierPrescriptionsPage() {
     };
 
     const handleDelete = async (id) => {
-        if (window.confirm(`Are you sure you want to delete Prescription RX-${String(id).padStart(4, '0')}?`)) {
+        if (
+            window.confirm(
+                `Are you sure you want to delete Prescription RX-${String(id).padStart(4, '0')}?`
+            )
+        ) {
             try {
-                if(String(id).includes('999')) {
-                    setPrescriptions(prescriptions.filter(p => p.id !== id));
+                if (String(id).includes('999')) {
+                    setPrescriptions(
+                        prescriptions.filter(p => p.id !== id)
+                    );
                     toast.success('AI Draft removed successfully!');
                     return;
                 }
-                await axios.delete(`http://localhost:5000/api/prescriptions/${id}`);
+
+                await axios.delete(
+                    `http://localhost:5000/api/prescriptions/${id}`
+                );
+
                 toast.success('Prescription deleted successfully!');
                 fetchPrescriptions();
             } catch (err) {
@@ -287,20 +591,33 @@ export default function CashierPrescriptionsPage() {
     const handleAddSubmit = async (e) => {
         e.preventDefault();
 
-        if (!form.patientId || !form.doctorName || !form.doctorSpecialization) {
-            toast.error('Please select a Patient, and enter Doctor Name & Specialization');
+        if (
+            !form.patientId ||
+            !form.doctorName ||
+            !form.doctorSpecialization
+        ) {
+            toast.error(
+                'Please select a Patient, and enter Doctor Name & Specialization'
+            );
             return;
         }
 
-        const hasInvalidItems = form.items.some(item => !item.medicineName);
+        const hasInvalidItems = form.items.some(
+            item => !item.medicineName
+        );
+
         if (hasInvalidItems) {
             toast.error('Please enter valid medicine names.');
             return;
         }
 
         setUpdating(true);
+
         try {
-            const selectedPatient = patients.find(p => String(p.id) === String(form.patientId));
+            const selectedPatient = allCustomers.find(
+                p => String(p.id) === String(form.patientId)
+            );
+
             const formattedItems = form.items.map(item => ({
                 medicineId: item.medicineId || null,
                 medicineName: item.medicineName,
@@ -310,7 +627,13 @@ export default function CashierPrescriptionsPage() {
 
             const payload = {
                 patientId: form.patientId,
-                patientName: selectedPatient ? (selectedPatient.name || selectedPatient.customerName || 'Unknown') : 'Unknown',
+                patientName: selectedPatient
+                    ? (
+                        selectedPatient.name ||
+                        selectedPatient.customerName ||
+                        'Unknown'
+                    )
+                    : 'Unknown',
                 patientNic: form.patientNic,
                 doctorName: form.doctorName,
                 doctorSpecialization: form.doctorSpecialization,
@@ -322,17 +645,27 @@ export default function CashierPrescriptionsPage() {
             };
 
             if (editingRxId) {
-                await axios.put(`http://localhost:5000/api/prescriptions/${editingRxId}`, payload);
+                await axios.put(
+                    `http://localhost:5000/api/prescriptions/${editingRxId}`,
+                    payload
+                );
+
                 toast.success('Prescription updated successfully!');
             } else {
-                await axios.post('http://localhost:5000/api/prescriptions', payload);
+                await axios.post(
+                    'http://localhost:5000/api/prescriptions',
+                    payload
+                );
+
                 toast.success('Prescription added successfully!');
             }
 
             closeModal();
             fetchPrescriptions();
         } catch (err) {
-            toast.error(`Failed to ${editingRxId ? 'update' : 'add'} prescription`);
+            toast.error(
+                `Failed to ${editingRxId ? 'update' : 'add'} prescription`
+            );
             console.error(err);
         } finally {
             setUpdating(false);
@@ -341,6 +674,7 @@ export default function CashierPrescriptionsPage() {
 
     const handleFileChange = (e) => {
         const file = e.target.files[0];
+
         if (file) {
             setUploadedImage(file);
             const url = URL.createObjectURL(file);
@@ -359,6 +693,7 @@ export default function CashierPrescriptionsPage() {
 
     const handleAIFileUpload = async (e) => {
         e.preventDefault();
+
         if (!uploadedImage) {
             toast.error("Please select an image file first.");
             return;
@@ -370,51 +705,186 @@ export default function CashierPrescriptionsPage() {
             const formData = new FormData();
             formData.append('prescription', uploadedImage);
 
-            const response = await axios.post('http://localhost:5000/api/prescriptions/scan', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
+            const response = await axios.post(
+                'http://localhost:5000/api/prescriptions/scan',
+                formData,
+                {
+                    headers: {
+                        'Content-Type': 'multipart/form-data'
+                    }
+                }
+            );
 
             if (response.data && response.data.extractedData) {
                 const data = response.data.extractedData;
                 const base64Image = await getBase64(uploadedImage);
 
-                let medIds = [];
-                let medNames = [];
-                let medQts = [];
-                let medDosages = [];
+                let finalPatientId = 1;
+                let finalPatientName = data.patient || 'Walk-in Customer (AI)';
+                let finalNic = data.nic || null;
+                let finalAge = null;
+                let finalGender = null;
+                let finalContact = data.contactNumber || null;
 
-                if (data.medicines && data.medicines.length > 0) {
-                    data.medicines.forEach(item => {
-                        medIds.push('null');
-                        medNames.push(item.name || 'Unknown');
-                        medQts.push(1);
-                        medDosages.push(item.dosage || '-');
+                const hasIdentifyingData =
+                    (data.nic && data.nic.trim() !== '') ||
+                    (data.contactNumber && data.contactNumber.trim() !== '') ||
+                    (data.patient && data.patient.trim() !== '');
+
+                if (hasIdentifyingData) {
+                    const existingCustomer = allCustomers.find(p => {
+                        if (
+                            data.nic &&
+                            p.nic &&
+                            p.nic.toUpperCase() === data.nic.toUpperCase()
+                        ) return true;
+
+                        if (
+                            data.contactNumber &&
+                            p.contactNumber &&
+                            p.contactNumber === data.contactNumber
+                        ) return true;
+
+                        if (
+                            data.patient &&
+                            p.name &&
+                            p.name.toLowerCase() === data.patient.toLowerCase()
+                        ) return true;
+
+                        return false;
                     });
+
+                    if (existingCustomer) {
+                        finalPatientId = existingCustomer.id;
+                        finalPatientName = existingCustomer.name;
+                        finalNic = existingCustomer.nic;
+                        finalAge = existingCustomer.age;
+                        finalGender = existingCustomer.gender;
+                        finalContact = existingCustomer.contactNumber;
+                    } else {
+                        try {
+                            const patientNameForDb =
+                                (data.patient && data.patient.trim() !== '')
+                                    ? data.patient
+                                    : 'Walk-in Customer (AI)';
+
+                            const generatedContact =
+                                (
+                                    data.contactNumber &&
+                                    data.contactNumber.trim() !== ''
+                                )
+                                    ? data.contactNumber
+                                    : '000' + Math.floor(
+                                    1000000 + Math.random() * 9000000
+                                ).toString();
+
+                            const newCustomerPayload = {
+                                name: patientNameForDb,
+                                age: 18,
+                                gender: 'Other',
+                                contactNumber: generatedContact,
+                                nic: data.nic || '',
+                                email: '',
+                                address: 'Added via AI Prescription Scan',
+                                loyaltyPoints: 0
+                            };
+
+                            const newCustomerRes = await axios.post(
+                                'http://localhost:5000/api/crm/customers',
+                                newCustomerPayload
+                            );
+
+                            if (
+                                newCustomerRes.data &&
+                                newCustomerRes.data.id
+                            ) {
+                                finalPatientId = newCustomerRes.data.id;
+                                finalPatientName =
+                                    newCustomerRes.data.name || patientNameForDb;
+                                finalNic = newCustomerRes.data.nic;
+                                finalAge = newCustomerRes.data.age;
+                                finalGender = newCustomerRes.data.gender;
+                                finalContact = newCustomerRes.data.contactNumber;
+
+                                const updatedCustomers = await axios.get(
+                                    'http://localhost:5000/api/crm/customers'
+                                );
+
+                                setAllCustomers(updatedCustomers.data || []);
+                            }
+                        } catch (crmErr) {
+                            console.error(
+                                'Failed to save AI patient to CRM:',
+                                crmErr
+                            );
+
+                            const defaultPatient = allCustomers.find(
+                                p => p.name?.toLowerCase().includes('walk-in')
+                            ) || allCustomers[0];
+
+                            if (defaultPatient) {
+                                finalPatientId = defaultPatient.id;
+                                finalNic = defaultPatient.nic;
+                                finalAge = defaultPatient.age;
+                                finalGender = defaultPatient.gender;
+                                finalContact = defaultPatient.contactNumber;
+                            }
+                        }
+                    }
+                } else {
+                    const defaultPatient = allCustomers.find(
+                        p => p.name?.toLowerCase().includes('walk-in')
+                    ) || allCustomers[0];
+
+                    if (defaultPatient) {
+                        finalPatientId = defaultPatient.id;
+                        finalNic = defaultPatient.nic;
+                        finalAge = defaultPatient.age;
+                        finalGender = defaultPatient.gender;
+                        finalContact = defaultPatient.contactNumber;
+                    }
                 }
 
-                const defaultPatient = patients.find(p => p.name?.toLowerCase().includes('walk-in') || p.customerName?.toLowerCase().includes('walk-in')) || patients[0];
-                const defaultPatientId = defaultPatient ? defaultPatient.id : 1;
-
                 const payload = {
-                    patientId: defaultPatientId,
-                    patientName: data.patient || 'Walk-in Customer (AI)',
+                    patientId: finalPatientId,
+                    patientName: finalPatientName,
+                    patientNic: finalNic,
+                    patientAge: finalAge,
+                    patientGender: finalGender,
+                    patientContactNumber: finalContact,
+
                     doctorName: data.doctor || 'Unknown',
+                    doctorSpecialization: 'General Physician (MBBS)',
+                    doctorContactNumber: null,
+
                     prescriptionDate: new Date().toISOString().split('T')[0],
                     status: 'Pending',
-                    medicineIds: medIds.join(','),
-                    medicineNames: medNames.join(','),
-                    quantities: medQts.join(','),
-                    dosageInstructions: medDosages.join(' || '),
-                    digitalCopyUrl: base64Image
+
+                    items: (data.medicines || []).map(m => ({
+                        medicineId: null,
+                        medicineName: m.name || 'Unknown Medicine',
+                        quantity: 1,
+                        dosageInstructions: m.dosage || '-'
+                    })),
+
+                    digitalCopyUrl: base64Image,
+                    notes: "Drafted by AI Scanner"
                 };
 
-                await axios.post('http://localhost:5000/api/prescriptions', payload);
+                await axios.post(
+                    'http://localhost:5000/api/prescriptions',
+                    payload
+                );
 
                 setIsScanning(false);
                 setShowAIUploadModal(false);
                 setUploadedImage(null);
                 setImagePreviewUrl(null);
-                toast.success("AI Scan Complete! Prescription saved to Database.", { icon: '✅' });
+
+                toast.success(
+                    "AI Scan Complete! Prescription saved.",
+                    { icon: '✅' }
+                );
 
                 fetchPrescriptions();
             }
@@ -427,50 +897,146 @@ export default function CashierPrescriptionsPage() {
 
     const openVerification = (rx) => {
         setSelectedAIRx(rx);
+
         setExtractedData({
             patient: rx.patientName?.replace(' (AI Draft)', '') || '',
+            nic: rx.patientNic || '',
+            contactNumber: rx.patientContactNumber || '',
             doctor: rx.doctorName || '',
             medicines: rx.rawExtractedMedicines || []
         });
+
         setShowVerifyModal(true);
     };
 
     const handleApproveForPOS = async () => {
         try {
-            let medIds = [];
-            let medNames = [];
-            let medQts = [];
-            let medDosages = [];
+            let finalPatientId = 1;
+            let finalPatientName =
+                extractedData.patient || 'Walk-in Customer (AI)';
 
-            extractedData.medicines.forEach(item => {
-                medIds.push('null');
-                medNames.push(item.name || 'Unknown');
-                medQts.push(1);
-                medDosages.push(item.dosage || '-');
-            });
+            const hasIdentifyingData =
+                (extractedData.nic && extractedData.nic.trim() !== '') ||
+                (
+                    extractedData.contactNumber &&
+                    extractedData.contactNumber.trim() !== ''
+                ) ||
+                (
+                    extractedData.patient &&
+                    extractedData.patient.trim() !== ''
+                );
 
-            const defaultPatient = patients.find(p => p.name?.toLowerCase().includes('walk-in') || p.customerName?.toLowerCase().includes('walk-in')) || patients[0];
-            const defaultPatientId = defaultPatient ? defaultPatient.id : 1;
+            if (hasIdentifyingData) {
+                const existingCustomer = allCustomers.find(p => {
+                    if (
+                        extractedData.nic &&
+                        p.nic &&
+                        p.nic.toUpperCase() === extractedData.nic.toUpperCase()
+                    ) return true;
+
+                    if (
+                        extractedData.contactNumber &&
+                        p.contactNumber &&
+                        p.contactNumber === extractedData.contactNumber
+                    ) return true;
+
+                    if (
+                        extractedData.patient &&
+                        p.name &&
+                        p.name.toLowerCase() === extractedData.patient.toLowerCase()
+                    ) return true;
+
+                    return false;
+                });
+
+                if (existingCustomer) {
+                    finalPatientId = existingCustomer.id;
+                    finalPatientName = existingCustomer.name;
+                } else {
+                    try {
+                        const generatedContact =
+                            (
+                                extractedData.contactNumber &&
+                                extractedData.contactNumber.trim() !== ''
+                            )
+                                ? extractedData.contactNumber
+                                : '000' + Math.floor(
+                                1000000 + Math.random() * 9000000
+                            ).toString();
+
+                        const newCustomerRes = await axios.post(
+                            'http://localhost:5000/api/crm/customers',
+                            {
+                                name: (
+                                    extractedData.patient &&
+                                    extractedData.patient.trim() !== ''
+                                )
+                                    ? extractedData.patient
+                                    : 'Walk-in Customer (AI)',
+                                age: 18,
+                                gender: 'Other',
+                                contactNumber: generatedContact,
+                                nic: extractedData.nic || '',
+                                email: '',
+                                address: 'Added via AI Verification',
+                                loyaltyPoints: 0
+                            }
+                        );
+
+                        if (
+                            newCustomerRes.data &&
+                            newCustomerRes.data.id
+                        ) {
+                            finalPatientId = newCustomerRes.data.id;
+                            finalPatientName =
+                                newCustomerRes.data.name || extractedData.patient;
+                        }
+                    } catch (e) {}
+                }
+            } else {
+                const defaultPatient = allCustomers.find(
+                    p => p.name?.toLowerCase().includes('walk-in')
+                ) || allCustomers[0];
+
+                finalPatientId = defaultPatient ? defaultPatient.id : 1;
+            }
 
             const payload = {
-                patientId: defaultPatientId,
-                patientName: extractedData.patient,
-                doctorName: extractedData.doctor,
+                patientId: finalPatientId,
+                patientName: finalPatientName,
+                doctorName: extractedData.doctor || 'Unknown',
+                doctorSpecialization: 'General Physician (MBBS)',
                 prescriptionDate: new Date().toISOString().split('T')[0],
                 status: 'Pending',
-                medicineIds: medIds.join(','),
-                medicineNames: medNames.join(','),
-                quantities: medQts.join(','),
-                dosageInstructions: medDosages.join(' || '),
-                digitalCopyUrl: selectedAIRx.imageUrl
+
+                items: (extractedData.medicines || []).map(m => ({
+                    medicineId: null,
+                    medicineName: m.name || 'Unknown Medicine',
+                    quantity: 1,
+                    dosageInstructions: m.dosage || '-'
+                })),
+
+                digitalCopyUrl: selectedAIRx?.imageUrl || '',
+                notes: "Verified AI Draft"
             };
 
-            await axios.post('http://localhost:5000/api/prescriptions', payload);
-            setPrescriptions(prescriptions.filter(p => p.id !== selectedAIRx.id));
-            setShowVerifyModal(false);
-            toast.success(`Verified! Prescription added to system. POS can now process it.`, { icon: '✅' });
-            fetchPrescriptions();
+            await axios.post(
+                'http://localhost:5000/api/prescriptions',
+                payload
+            );
 
+            setPrescriptions(
+                prescriptions.filter(p => p.id !== selectedAIRx.id)
+            );
+
+            setShowVerifyModal(false);
+
+            toast.success(
+                `Verified! Prescription added to system. POS can now process it.`,
+                { icon: '✅' }
+            );
+
+            fetchPrescriptions();
         } catch (err) {
             toast.error("Failed to approve and save to database.");
             console.error(err);
@@ -480,22 +1046,37 @@ export default function CashierPrescriptionsPage() {
     const getStartDate = () => {
         const d = new Date();
         d.setHours(0, 0, 0, 0);
+
         switch (dateRange) {
-            case 'today': return d;
-            case '7days': return new Date(d.setDate(d.getDate() - 7));
-            case '30days': return new Date(d.setDate(d.getDate() - 30));
-            case 'all': return new Date(0);
-            default: return d;
+            case 'today':
+                return d;
+            case '7days':
+                return new Date(d.setDate(d.getDate() - 7));
+            case '30days':
+                return new Date(d.setDate(d.getDate() - 30));
+            case 'all':
+                return new Date(0);
+            default:
+                return d;
         }
     };
 
     const startDate = getStartDate();
 
     const filteredPrescriptions = prescriptions.filter(rx => {
-        const pName = (rx.patientName || rx.patient?.name || '').toLowerCase();
+        const pName = (
+            rx.patientName || rx.patient?.name || ''
+        ).toLowerCase();
+
         const rxId = String(rx.id).toLowerCase();
-        const matchesSearch = pName.includes(searchQuery.toLowerCase()) || rxId.includes(searchQuery.toLowerCase());
-        const matchesStatus = statusFilter === 'All' || rx.status === statusFilter;
+
+        const matchesSearch =
+            pName.includes(searchQuery.toLowerCase()) ||
+            rxId.includes(searchQuery.toLowerCase());
+
+        const matchesStatus =
+            statusFilter === 'All' || rx.status === statusFilter;
+
         return matchesSearch && matchesStatus;
     });
 
@@ -507,19 +1088,23 @@ export default function CashierPrescriptionsPage() {
             `}</style>
 
             <div className="relative font-sans z-0 min-h-[calc(100vh-6rem)] bg-slate-50/80 backdrop-blur-[24px] rounded-[32px] border border-white/60 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden p-6 mb-4">
-
-                <div className="absolute inset-0 z-[-3] opacity-[0.03] pointer-events-none mix-blend-multiply"
-                     style={{ backgroundImage: "url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjEuNSIgZmlsbD0iIzBmMzQ2MCIvPjwvc3ZnPg==')" }}>
-                </div>
+                <div
+                    className="absolute inset-0 z-[-3] opacity-[0.03] pointer-events-none mix-blend-multiply"
+                    style={{
+                        backgroundImage: "url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjEuNSIgZmlsbD0iIzBmMzQ2MCIvPjwvc3ZnPg==')"
+                    }}
+                ></div>
 
                 <div className="absolute top-[-20%] left-[-10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-br from-indigo-200/20 to-slate-300/20 blur-[120px] pointer-events-none z-[-2]"></div>
+
                 <div className="absolute bottom-[-20%] right-[-10%] w-[70vw] h-[70vw] rounded-full bg-gradient-to-tl from-slate-300/20 to-indigo-200/20 blur-[140px] pointer-events-none z-[-2]"></div>
 
                 <div className="relative z-10 w-full h-full flex flex-col gap-6 pb-2">
-
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
                         <div>
-                            <h1 className="text-[26px] font-bold text-[#1e293b] tracking-tight leading-none">Prescriptions</h1>
+                            <h1 className="text-[26px] font-bold text-[#1e293b] tracking-tight leading-none">
+                                Prescriptions
+                            </h1>
                             <p className="text-[13px] font-medium text-slate-500 mt-1.5">
                                 Manage patient prescriptions, prescribed medicines, and dispensing status
                             </p>
@@ -530,23 +1115,36 @@ export default function CashierPrescriptionsPage() {
                                 onClick={() => setShowAIUploadModal(true)}
                                 className="flex items-center gap-2 bg-white/60 backdrop-blur-md px-5 py-3 rounded-2xl text-[14px] font-extrabold shadow-sm hover:bg-white/80 transition-all cursor-pointer border border-white/80"
                             >
-                                <Sparkles size={16} className="text-purple-600" />
-                                <span className="bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent">AI</span>
+                                <Sparkles
+                                    size={16}
+                                    className="text-purple-600"
+                                />
+                                <span className="bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent">
+                                    AI
+                                </span>
                             </button>
+
                             <button
-                                onClick={() => { closeModal(); setIsAddModalOpen(true); }}
+                                onClick={() => {
+                                    closeModal();
+                                    setIsAddModalOpen(true);
+                                }}
                                 className="flex items-center gap-2 bg-indigo-500/90 backdrop-blur-md text-white px-5 py-3 rounded-2xl text-[14px] font-bold hover:bg-indigo-600 transition-all shadow-[0_10px_25px_-5px_rgba(99,102,241,0.4)] border border-indigo-400/50 cursor-pointer active:scale-[0.98]"
                             >
-                                <Plus size={18} strokeWidth={2.5} /> Add Prescription
+                                <Plus size={18} strokeWidth={2.5} />
+                                Add Prescription
                             </button>
                         </div>
                     </div>
 
                     <div className="bg-white/30 backdrop-blur-2xl rounded-[32px] border border-white/50 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden flex flex-col mt-2">
-
                         <div className="p-6 border-b border-white/30 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/10">
                             <div className="relative w-full md:w-96">
-                                <Search size={18} className="absolute left-4 top-3.5 text-slate-400" />
+                                <Search
+                                    size={18}
+                                    className="absolute left-4 top-3.5 text-slate-400"
+                                />
+
                                 <input
                                     type="text"
                                     placeholder="Search by Patient Name or RX ID..."
@@ -557,7 +1155,11 @@ export default function CashierPrescriptionsPage() {
                             </div>
 
                             <div className="flex items-center gap-3">
-                                <Filter size={16} className="text-slate-400" />
+                                <Filter
+                                    size={16}
+                                    className="text-slate-400"
+                                />
+
                                 <select
                                     value={statusFilter}
                                     onChange={(e) => setStatusFilter(e.target.value)}
@@ -575,68 +1177,119 @@ export default function CashierPrescriptionsPage() {
                             <table className="w-full text-left border-collapse">
                                 <thead>
                                 <tr>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">RX ID</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Date</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Patient</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Doctor</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Status</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 text-right">Actions</th>
+                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">
+                                        RX ID
+                                    </th>
+                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">
+                                        Date
+                                    </th>
+                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">
+                                        Patient
+                                    </th>
+                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">
+                                        Doctor
+                                    </th>
+                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">
+                                        Status
+                                    </th>
+                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 text-right">
+                                        Actions
+                                    </th>
                                 </tr>
                                 </thead>
+
                                 <tbody>
                                 {loading ? (
-                                    <tr><td colSpan="6" className="text-center py-16 text-slate-500 font-medium text-[13px]">Loading prescriptions...</td></tr>
+                                    <tr>
+                                        <td
+                                            colSpan="6"
+                                            className="text-center py-16 text-slate-500 font-medium text-[13px]"
+                                        >
+                                            Loading prescriptions...
+                                        </td>
+                                    </tr>
                                 ) : filteredPrescriptions.length === 0 ? (
-                                    <tr><td colSpan="6" className="text-center py-16 text-slate-500 font-medium text-[13px]">No prescriptions found. Click "+ Add Prescription" to create one.</td></tr>
+                                    <tr>
+                                        <td
+                                            colSpan="6"
+                                            className="text-center py-16 text-slate-500 font-medium text-[13px]"
+                                        >
+                                            No prescriptions found. Click "+ Add Prescription" to create one.
+                                        </td>
+                                    </tr>
                                 ) : (
                                     filteredPrescriptions.map((rx) => (
-                                        <tr key={rx.id} className="group hover:bg-white/20 transition-colors border-b border-white/20 last:border-0">
+                                        <tr
+                                            key={rx.id}
+                                            className="group hover:bg-white/20 transition-colors border-b border-white/20 last:border-0"
+                                        >
                                             <td className="py-4 align-top pt-5 font-bold text-[13px] text-indigo-700">
                                                 RX-{String(rx.id).padStart(4, '0')}
                                             </td>
+
                                             <td className="py-4 align-top pt-5 text-[13px] font-medium text-slate-600">
                                                 {rx.prescriptionDate}
                                             </td>
+
                                             <td className="py-4 align-top pt-5">
                                                 <div className="flex flex-col">
-                                                    <span className="text-[14px] font-bold text-[#1e293b]">
-                                                        {rx.patientName || rx.patient?.name || 'Unknown Patient'}
-                                                    </span>
+                                                        <span className="text-[14px] font-bold text-[#1e293b]">
+                                                            {rx.patientName || rx.patient?.name || 'Unknown Patient'}
+                                                        </span>
+
                                                     {(rx.patientNic || rx.patient?.nic) && (
                                                         <span className="text-[11px] font-bold text-slate-500 mt-0.5 uppercase tracking-wider">
-                                                            NIC: {rx.patientNic || rx.patient.nic}
-                                                        </span>
+                                                                NIC: {rx.patientNic || rx.patient.nic}
+                                                            </span>
                                                     )}
                                                 </div>
                                             </td>
+
                                             <td className="py-4 align-top pt-5 text-[13px] font-medium text-slate-600">
                                                 Dr. {rx.doctorName || rx.doctor?.name || 'Unknown'}
                                             </td>
+
                                             <td className="py-4 align-top pt-5">
                                                 {rx.status === 'Pending' ? (
                                                     <span className="inline-flex items-center gap-1 px-3 py-1 bg-amber-100/50 border border-amber-200/50 text-amber-700 rounded-full text-[12px] font-bold shadow-sm">
-                                                        <Clock size={14} /> Pending
-                                                    </span>
+                                                            <Clock size={14} />
+                                                            Pending
+                                                        </span>
                                                 ) : rx.status === 'Dispensed' ? (
                                                     <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-100/50 border border-emerald-200/50 text-emerald-700 rounded-full text-[12px] font-bold shadow-sm">
-                                                        <CheckCircle size={14} /> Dispensed
-                                                    </span>
+                                                            <CheckCircle size={14} />
+                                                            Dispensed
+                                                        </span>
                                                 ) : (
                                                     <span className="inline-flex items-center gap-1 px-3 py-1 bg-slate-100/50 border border-slate-200/50 text-slate-700 rounded-full text-[12px] font-bold shadow-sm">
-                                                        {rx.status}
-                                                    </span>
+                                                            {rx.status}
+                                                        </span>
                                                 )}
                                             </td>
 
                                             <td className="py-4 align-top pt-4 text-right">
                                                 <div className="flex justify-end gap-3">
-                                                    <button onClick={() => setSelectedRx(rx)} className="text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer" title="View Details">
+                                                    <button
+                                                        onClick={() => setSelectedRx(rx)}
+                                                        className="text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer"
+                                                        title="View Details"
+                                                    >
                                                         <Eye size={18} />
                                                     </button>
-                                                    <button onClick={() => openEditModal(rx)} className="text-slate-400 hover:text-sky-600 transition-colors cursor-pointer" title="Edit Prescription">
+
+                                                    <button
+                                                        onClick={() => openEditModal(rx)}
+                                                        className="text-slate-400 hover:text-sky-600 transition-colors cursor-pointer"
+                                                        title="Edit Prescription"
+                                                    >
                                                         <Edit size={18} />
                                                     </button>
-                                                    <button onClick={() => handleDelete(rx.id)} className="text-slate-400 hover:text-rose-600 transition-colors cursor-pointer" title="Delete/Remove">
+
+                                                    <button
+                                                        onClick={() => handleDelete(rx.id)}
+                                                        className="text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                                                        title="Delete/Remove"
+                                                    >
                                                         <Trash2 size={18} />
                                                     </button>
                                                 </div>
@@ -654,42 +1307,76 @@ export default function CashierPrescriptionsPage() {
             {showAIUploadModal && createPortal(
                 <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
                     <div className="bg-white/90 backdrop-blur-2xl rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[500px] p-8 text-center relative overflow-hidden hide-scrollbar">
-                        <button onClick={() => setShowAIUploadModal(false)} className="absolute top-6 right-6 hover:bg-slate-100 p-2 rounded-full transition-colors cursor-pointer text-slate-400">
-                            <X size={20}/>
+                        <button
+                            onClick={() => setShowAIUploadModal(false)}
+                            className="absolute top-6 right-6 hover:bg-slate-100 p-2 rounded-full transition-colors cursor-pointer text-slate-400"
+                        >
+                            <X size={20} />
                         </button>
 
                         <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-indigo-100 shadow-inner">
                             <Sparkles className="w-8 h-8 text-indigo-600" />
                         </div>
 
-                        <h2 className="text-[20px] font-bold text-slate-800 mb-2">AI Prescription Scanner</h2>
+                        <h2 className="text-[20px] font-bold text-slate-800 mb-2">
+                            AI Prescription Scanner
+                        </h2>
+
                         <p className="text-[13px] text-slate-500 font-medium mb-8">
                             Upload a photo of the prescription. AI will extract patient, doctor, and medicine details and immediately save it as Pending.
                         </p>
 
                         {!isScanning ? (
                             <form onSubmit={handleAIFileUpload}>
-                                <label className={`border-2 border-dashed ${imagePreviewUrl ? 'border-indigo-400 p-2' : 'border-indigo-200 p-10 bg-indigo-50/30'} hover:bg-indigo-50/80 transition-colors rounded-3xl flex flex-col items-center justify-center cursor-pointer mb-6 group shadow-inner relative overflow-hidden h-[200px]`}>
+                                <label
+                                    className={`border-2 border-dashed ${imagePreviewUrl ? 'border-indigo-400 p-2' : 'border-indigo-200 p-10 bg-indigo-50/30'} hover:bg-indigo-50/80 transition-colors rounded-3xl flex flex-col items-center justify-center cursor-pointer mb-6 group shadow-inner relative overflow-hidden h-[200px]`}
+                                >
                                     {imagePreviewUrl ? (
-                                        <img src={imagePreviewUrl} alt="Preview" className="w-full h-full object-contain rounded-2xl" />
+                                        <img
+                                            src={imagePreviewUrl}
+                                            alt="Preview"
+                                            className="w-full h-full object-contain rounded-2xl"
+                                        />
                                     ) : (
                                         <>
                                             <UploadCloud className="w-10 h-10 text-indigo-400 group-hover:text-indigo-600 transition-colors mb-3" />
-                                            <span className="text-[14px] font-bold text-indigo-700">Click to upload or drag image</span>
-                                            <span className="text-[12px] font-medium text-slate-400 mt-1">Supports JPG, PNG, PDF</span>
+
+                                            <span className="text-[14px] font-bold text-indigo-700">
+                                                Click to upload or drag image
+                                            </span>
+
+                                            <span className="text-[12px] font-medium text-slate-400 mt-1">
+                                                Supports JPG, PNG, PDF
+                                            </span>
                                         </>
                                     )}
-                                    <input type="file" className="hidden" accept="image/*,.pdf" onChange={handleFileChange}/>
+
+                                    <input
+                                        type="file"
+                                        className="hidden"
+                                        accept="image/*,.pdf"
+                                        onChange={handleFileChange}
+                                    />
                                 </label>
-                                <button type="submit" className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold rounded-2xl shadow-[0_8px_20px_-6px_rgba(79,70,229,0.4)] transition-all py-3.5 text-[14px] hover:shadow-[0_8px_20px_-6px_rgba(79,70,229,0.6)] cursor-pointer">
+
+                                <button
+                                    type="submit"
+                                    className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold rounded-2xl shadow-[0_8px_20px_-6px_rgba(79,70,229,0.4)] transition-all py-3.5 text-[14px] hover:shadow-[0_8px_20px_-6px_rgba(79,70,229,0.6)] cursor-pointer"
+                                >
                                     Start Document Scan
                                 </button>
                             </form>
                         ) : (
                             <div className="py-12 flex flex-col items-center">
                                 <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
-                                <p className="text-[15px] font-bold text-slate-700">AI is analyzing handwriting...</p>
-                                <p className="text-[12px] text-slate-400 font-medium mt-2">Extracting medical details and saving to database.</p>
+
+                                <p className="text-[15px] font-bold text-slate-700">
+                                    AI is analyzing handwriting...
+                                </p>
+
+                                <p className="text-[12px] text-slate-400 font-medium mt-2">
+                                    Extracting medical details and saving to database.
+                                </p>
                             </div>
                         )}
                     </div>
@@ -702,10 +1389,19 @@ export default function CashierPrescriptionsPage() {
                     <div className="bg-white/80 backdrop-blur-2xl p-8 rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[750px] max-h-[90vh] overflow-y-auto hide-scrollbar">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-[20px] font-bold text-slate-800 flex items-center gap-2.5">
-                                {editingRxId ? <Edit className="w-5 h-5 text-indigo-600"/> : <Plus className="w-5 h-5 text-indigo-600"/>}
-                                {editingRxId ? 'Edit Prescription' : 'Add New Prescription'}
+                                {editingRxId
+                                    ? <Edit className="w-5 h-5 text-indigo-600" />
+                                    : <Plus className="w-5 h-5 text-indigo-600" />}
+
+                                {editingRxId
+                                    ? 'Edit Prescription'
+                                    : 'Add New Prescription'}
                             </h2>
-                            <button onClick={closeModal} className="hover:bg-white/50 p-2 rounded-full transition-colors border border-transparent hover:border-white/60 cursor-pointer">
+
+                            <button
+                                onClick={closeModal}
+                                className="hover:bg-white/50 p-2 rounded-full transition-colors border border-transparent hover:border-white/60 cursor-pointer"
+                            >
                                 <X className="w-5 h-5 text-slate-500" />
                             </button>
                         </div>
@@ -714,31 +1410,35 @@ export default function CashierPrescriptionsPage() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                                        <User size={14} className="text-indigo-500" /> Select Patient <span className="text-rose-500">*</span>
+                                        <User size={14} className="text-indigo-500" />
+                                        Select Patient
+                                        <span className="text-rose-500">*</span>
                                     </label>
-                                    <select required className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[13px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer shadow-sm backdrop-blur-sm"
-                                            value={form.patientId}
-                                            onChange={(e) => {
-                                                const selectedId = e.target.value;
-                                                const selectedPat = patients.find(p => String(p.id) === String(selectedId));
-                                                setForm({
-                                                    ...form,
-                                                    patientId: selectedId,
-                                                    patientNic: selectedPat ? (selectedPat.nic || '') : ''
-                                                });
-                                            }}>
-                                        <option value="">-- Choose Patient --</option>
-                                        {patients.map(p => (
-                                            <option key={p.id} value={p.id}>
-                                                {p.name || p.customerName || p.patientName || `Patient #${p.id}`}
-                                            </option>
-                                        ))}
-                                    </select>
+
+                                    <PatientSearchInput
+                                        customers={allCustomers}
+                                        value={form.patientId}
+                                        onSelect={(patient) => setForm(current => ({
+                                            ...current,
+                                            patientId: patient
+                                                ? String(patient.id)
+                                                : '',
+                                            patientNic: patient
+                                                ? (patient.nic || '')
+                                                : ''
+                                        }))}
+                                    />
                                 </div>
+
                                 <div>
                                     <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                                        <CreditCard size={14} className="text-indigo-500" /> Patient NIC
+                                        <CreditCard
+                                            size={14}
+                                            className="text-indigo-500"
+                                        />
+                                        Patient NIC
                                     </label>
+
                                     <input
                                         type="text"
                                         readOnly
@@ -751,15 +1451,40 @@ export default function CashierPrescriptionsPage() {
 
                             <div className="p-5 bg-white/40 border border-white/60 rounded-2xl shadow-sm backdrop-blur-sm space-y-4">
                                 <h3 className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
-                                    <Stethoscope size={14} className="text-indigo-500"/> Doctor Details
+                                    <Stethoscope
+                                        size={14}
+                                        className="text-indigo-500"
+                                    />
+                                    Doctor Details
                                 </h3>
+
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Doctor Name <span className="text-rose-500">*</span></label>
-                                        <input type="text" required placeholder="e.g. Kumara" className="w-full px-4 py-2.5 bg-white/60 border border-white/80 rounded-xl text-[12px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm" value={form.doctorName} onChange={(e) => setForm({...form, doctorName: e.target.value})} disabled={!!editingRxId} />
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                                            Doctor Name
+                                            <span className="text-rose-500">*</span>
+                                        </label>
+
+                                        <input
+                                            type="text"
+                                            required
+                                            placeholder="e.g. Kumara"
+                                            className="w-full px-4 py-2.5 bg-white/60 border border-white/80 rounded-xl text-[12px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm"
+                                            value={form.doctorName}
+                                            onChange={(e) => setForm({
+                                                ...form,
+                                                doctorName: e.target.value
+                                            })}
+                                            disabled={!!editingRxId}
+                                        />
                                     </div>
+
                                     <div>
-                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Specialization <span className="text-rose-500">*</span></label>
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                                            Specialization
+                                            <span className="text-rose-500">*</span>
+                                        </label>
+
                                         <input
                                             type="text"
                                             list="specializations-list"
@@ -767,43 +1492,86 @@ export default function CashierPrescriptionsPage() {
                                             placeholder="e.g. Cardiologist"
                                             className="w-full px-4 py-2.5 bg-white/60 border border-white/80 rounded-xl text-[12px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm"
                                             value={form.doctorSpecialization}
-                                            onChange={(e) => setForm({...form, doctorSpecialization: e.target.value})}
+                                            onChange={(e) => setForm({
+                                                ...form,
+                                                doctorSpecialization: e.target.value
+                                            })}
                                             disabled={!!editingRxId}
                                         />
+
                                         <datalist id="specializations-list">
                                             {COMMON_SPECIALIZATIONS.map((spec, index) => (
                                                 <option key={index} value={spec} />
                                             ))}
                                         </datalist>
                                     </div>
+
                                     <div className="md:col-span-2">
-                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Contact Number</label>
-                                        <input type="text" placeholder="Optional" className="w-full px-4 py-2.5 bg-white/60 border border-white/80 rounded-xl text-[12px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm" value={form.doctorContactNumber} onChange={(e) => setForm({...form, doctorContactNumber: e.target.value})} disabled={!!editingRxId} />
-                                        {form.doctorContactNumber && !/^\d{10}$/.test(form.doctorContactNumber) && (
-                                            <p className="text-rose-500 text-[10px] font-bold mt-1.5">Contact number must be exactly 10 digits</p>
-                                        )}
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                                            Contact Number
+                                        </label>
+
+                                        <input
+                                            type="text"
+                                            placeholder="Optional"
+                                            className="w-full px-4 py-2.5 bg-white/60 border border-white/80 rounded-xl text-[12px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm"
+                                            value={form.doctorContactNumber}
+                                            onChange={(e) => setForm({
+                                                ...form,
+                                                doctorContactNumber: e.target.value
+                                            })}
+                                            disabled={!!editingRxId}
+                                        />
+
+                                        {form.doctorContactNumber &&
+                                            !/^\d{10}$/.test(form.doctorContactNumber) && (
+                                                <p className="text-rose-500 text-[10px] font-bold mt-1.5">
+                                                    Contact number must be exactly 10 digits
+                                                </p>
+                                            )}
                                     </div>
                                 </div>
-                                {editingRxId && <p className="text-[10px] text-slate-500 italic mt-1 font-medium">Doctor details cannot be changed during an edit.</p>}
+
+                                {editingRxId && (
+                                    <p className="text-[10px] text-slate-500 italic mt-1 font-medium">
+                                        Doctor details cannot be changed during an edit.
+                                    </p>
+                                )}
                             </div>
 
                             <div className="p-5 bg-indigo-50/40 border border-indigo-100/50 rounded-2xl shadow-sm backdrop-blur-sm space-y-4">
                                 <div className="flex justify-between items-center">
                                     <h3 className="text-[11px] font-bold text-indigo-700 uppercase tracking-wider flex items-center gap-1.5">
-                                        <Pill size={14}/> Prescribed Medicines List
+                                        <Pill size={14} />
+                                        Prescribed Medicines List
                                     </h3>
-                                    <button type="button" onClick={addItemRow} className="text-[11px] font-bold bg-indigo-500/90 text-white border border-indigo-400/50 px-3 py-1.5 rounded-xl hover:bg-indigo-600 transition-colors shadow-sm cursor-pointer">
+
+                                    <button
+                                        type="button"
+                                        onClick={addItemRow}
+                                        className="text-[11px] font-bold bg-indigo-500/90 text-white border border-indigo-400/50 px-3 py-1.5 rounded-xl hover:bg-indigo-600 transition-colors shadow-sm cursor-pointer"
+                                    >
                                         + Add Medicine
                                     </button>
                                 </div>
 
                                 {form.items.map((item, index) => {
-                                    const selectedMedObj = medicines.find(m => String(m.id) === String(item.medicineId));
-                                    const isItemControlled = selectedMedObj ? Boolean(selectedMedObj.isControlled || selectedMedObj.is_controlled) : false;
+                                    const selectedMedObj = medicines.find(
+                                        m => String(m.id) === String(item.medicineId)
+                                    );
+
+                                    const isItemControlled = selectedMedObj
+                                        ? Boolean(
+                                            selectedMedObj.isControlled ||
+                                            selectedMedObj.is_controlled
+                                        )
+                                        : false;
 
                                     return (
-                                        <div key={index} className={`flex flex-col md:flex-row items-center gap-3 p-3 border rounded-xl shadow-sm backdrop-blur-sm transition-colors ${isItemControlled ? 'bg-rose-100/50 border-rose-200/50' : 'bg-white/60 border-white/80'}`}>
-
+                                        <div
+                                            key={index}
+                                            className={`flex flex-col md:flex-row items-center gap-3 p-3 border rounded-xl shadow-sm backdrop-blur-sm transition-colors ${isItemControlled ? 'bg-rose-100/50 border-rose-200/50' : 'bg-white/60 border-white/80'}`}
+                                        >
                                             <div className="flex-1 w-full relative">
                                                 <input
                                                     type="text"
@@ -815,53 +1583,130 @@ export default function CashierPrescriptionsPage() {
                                                     onChange={(e) => {
                                                         const val = e.target.value;
                                                         const newItems = [...form.items];
+
                                                         newItems[index].medicineName = val;
 
-                                                        const matchedMed = medicines.find(m => m.name.toLowerCase() === val.toLowerCase());
-                                                        newItems[index].medicineId = matchedMed ? matchedMed.id : '';
+                                                        const matchedMed = medicines.find(
+                                                            m => m.name.toLowerCase() === val.toLowerCase()
+                                                        );
 
-                                                        setForm({ ...form, items: newItems });
+                                                        newItems[index].medicineId =
+                                                            matchedMed ? matchedMed.id : '';
+
+                                                        setForm({
+                                                            ...form,
+                                                            items: newItems
+                                                        });
                                                     }}
                                                 />
+
                                                 <datalist id={`rx-medicines-list-${index}`}>
-                                                    {medicines.filter(m => Number(m.quantity) > 0).map(m => (
-                                                        <option key={m.id} value={m.name}>
-                                                            {m.dosage ? `(${m.dosage})` : ''} - Stock: {m.quantity}
-                                                        </option>
-                                                    ))}
+                                                    {medicines
+                                                        .filter(m => Number(m.quantity) > 0)
+                                                        .map(m => (
+                                                            <option key={m.id} value={m.name}>
+                                                                {m.dosage ? `(${m.dosage})` : ''} - Stock: {m.quantity}
+                                                            </option>
+                                                        ))}
                                                 </datalist>
 
                                                 {isItemControlled && (
-                                                    <div className="absolute right-8 top-1/2 -translate-y-1/2 text-rose-500" title="NMRA Controlled Drug">
+                                                    <div
+                                                        className="absolute right-8 top-1/2 -translate-y-1/2 text-rose-500"
+                                                        title="NMRA Controlled Drug"
+                                                    >
                                                         <ShieldAlert size={14} />
                                                     </div>
                                                 )}
+
                                                 {item.medicineName && !item.medicineId && (
-                                                    <div className="absolute right-8 top-1/2 -translate-y-1/2 text-amber-500" title="Please select a valid medicine from the list">
+                                                    <div
+                                                        className="absolute right-8 top-1/2 -translate-y-1/2 text-amber-500"
+                                                        title="Please select a valid medicine from the list"
+                                                    >
                                                         <AlertTriangle size={14} />
                                                     </div>
                                                 )}
                                             </div>
 
                                             <div className="w-20">
-                                                <input type="number" min="1" required placeholder="Qty" className="w-full px-3 py-2.5 bg-white/80 border border-white/80 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm" value={item.quantity} onChange={(e) => handleItemChange(index, 'quantity', e.target.value)} />
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    required
+                                                    placeholder="Qty"
+                                                    className="w-full px-3 py-2.5 bg-white/80 border border-white/80 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm"
+                                                    value={item.quantity}
+                                                    onChange={(e) => handleItemChange(
+                                                        index,
+                                                        'quantity',
+                                                        e.target.value
+                                                    )}
+                                                />
                                             </div>
+
                                             <div className="flex-1 flex gap-1 w-full">
                                                 <div className="flex-1 flex items-center border border-white/80 bg-white/50 backdrop-blur-sm rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500/40 shadow-sm">
-                                                    <span className="px-2 py-2 bg-white/60 text-[10px] font-bold text-slate-600 border-r border-white/80">Morn</span>
-                                                    <input type="text" className="w-full px-1 py-2 text-xs font-bold text-center text-slate-800 outline-none bg-transparent" placeholder="1" value={item.dosageM || ''} onChange={(e) => handleItemChange(index, 'dosageM', e.target.value)} />
+                                                    <span className="px-2 py-2 bg-white/60 text-[10px] font-bold text-slate-600 border-r border-white/80">
+                                                        Morn
+                                                    </span>
+
+                                                    <input
+                                                        type="text"
+                                                        className="w-full px-1 py-2 text-xs font-bold text-center text-slate-800 outline-none bg-transparent"
+                                                        placeholder="1"
+                                                        value={item.dosageM || ''}
+                                                        onChange={(e) => handleItemChange(
+                                                            index,
+                                                            'dosageM',
+                                                            e.target.value
+                                                        )}
+                                                    />
                                                 </div>
+
                                                 <div className="flex-1 flex items-center border border-white/80 bg-white/50 backdrop-blur-sm rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500/40 shadow-sm">
-                                                    <span className="px-2 py-2 bg-white/60 text-[10px] font-bold text-slate-600 border-r border-white/80">Noon</span>
-                                                    <input type="text" className="w-full px-1 py-2 text-xs font-bold text-center text-slate-800 outline-none bg-transparent" placeholder="0" value={item.dosageA || ''} onChange={(e) => handleItemChange(index, 'dosageA', e.target.value)} />
+                                                    <span className="px-2 py-2 bg-white/60 text-[10px] font-bold text-slate-600 border-r border-white/80">
+                                                        Noon
+                                                    </span>
+
+                                                    <input
+                                                        type="text"
+                                                        className="w-full px-1 py-2 text-xs font-bold text-center text-slate-800 outline-none bg-transparent"
+                                                        placeholder="0"
+                                                        value={item.dosageA || ''}
+                                                        onChange={(e) => handleItemChange(
+                                                            index,
+                                                            'dosageA',
+                                                            e.target.value
+                                                        )}
+                                                    />
                                                 </div>
+
                                                 <div className="flex-1 flex items-center border border-white/80 bg-white/50 backdrop-blur-sm rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500/40 shadow-sm">
-                                                    <span className="px-2 py-2 bg-white/60 text-[10px] font-bold text-slate-600 border-r border-white/80">Night</span>
-                                                    <input type="text" className="w-full px-1 py-2 text-xs font-bold text-center text-slate-800 outline-none bg-transparent" placeholder="1" value={item.dosageN || ''} onChange={(e) => handleItemChange(index, 'dosageN', e.target.value)} />
+                                                    <span className="px-2 py-2 bg-white/60 text-[10px] font-bold text-slate-600 border-r border-white/80">
+                                                        Night
+                                                    </span>
+
+                                                    <input
+                                                        type="text"
+                                                        className="w-full px-1 py-2 text-xs font-bold text-center text-slate-800 outline-none bg-transparent"
+                                                        placeholder="1"
+                                                        value={item.dosageN || ''}
+                                                        onChange={(e) => handleItemChange(
+                                                            index,
+                                                            'dosageN',
+                                                            e.target.value
+                                                        )}
+                                                    />
                                                 </div>
                                             </div>
+
                                             {form.items.length > 1 && (
-                                                <button type="button" onClick={() => removeItemRow(index)} className="p-2.5 text-rose-500 hover:bg-rose-100/50 rounded-lg transition-colors cursor-pointer ml-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeItemRow(index)}
+                                                    className="p-2.5 text-rose-500 hover:bg-rose-100/50 rounded-lg transition-colors cursor-pointer ml-1"
+                                                >
                                                     <Trash2 size={16} />
                                                 </button>
                                             )}
@@ -872,28 +1717,84 @@ export default function CashierPrescriptionsPage() {
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Calendar size={14} className="text-indigo-500"/> Prescription Date</label>
-                                    <input type="date" required className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[13px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer shadow-sm backdrop-blur-sm" value={form.prescriptionDate} onChange={(e) => setForm({...form, prescriptionDate: e.target.value})} />
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                        <Calendar
+                                            size={14}
+                                            className="text-indigo-500"
+                                        />
+                                        Prescription Date
+                                    </label>
+
+                                    <input
+                                        type="date"
+                                        required
+                                        className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[13px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer shadow-sm backdrop-blur-sm"
+                                        value={form.prescriptionDate}
+                                        onChange={(e) => setForm({
+                                            ...form,
+                                            prescriptionDate: e.target.value
+                                        })}
+                                    />
                                 </div>
+
                                 <div>
-                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center gap-1.5"><FileCheck size={14} className="text-indigo-500"/> Status</label>
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                        <FileCheck
+                                            size={14}
+                                            className="text-indigo-500"
+                                        />
+                                        Status
+                                    </label>
+
                                     <div className="w-full px-4 py-3 bg-white/40 border border-white/60 rounded-2xl text-[13px] font-bold text-slate-600 flex items-center justify-between cursor-not-allowed select-none shadow-sm backdrop-blur-sm">
                                         <span className="flex items-center gap-2">
-                                            {form.status === 'Pending' ? <Clock size={16} className="text-amber-500" /> : <CheckCircle size={16} className="text-emerald-500" />}
-                                            <span className={form.status === 'Pending' ? 'text-amber-600' : 'text-emerald-600'}>{form.status}</span>
+                                            {form.status === 'Pending'
+                                                ? <Clock size={16} className="text-amber-500" />
+                                                : <CheckCircle size={16} className="text-emerald-500" />}
+
+                                            <span className={
+                                                form.status === 'Pending'
+                                                    ? 'text-amber-600'
+                                                    : 'text-emerald-600'
+                                            }>
+                                                {form.status}
+                                            </span>
                                         </span>
                                     </div>
-                                    <p className="text-[10px] text-slate-500 italic mt-1.5 font-medium">Status updates automatically via POS billing.</p>
+
+                                    <p className="text-[10px] text-slate-500 italic mt-1.5 font-medium">
+                                        Status updates automatically via POS billing.
+                                    </p>
                                 </div>
                             </div>
 
                             <div>
-                                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2">Notes / Instructions</label>
-                                <textarea rows="2" placeholder="Add any special notes..." className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[13px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm backdrop-blur-sm" value={form.notes} onChange={(e) => setForm({...form, notes: e.target.value})}></textarea>
+                                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2">
+                                    Notes / Instructions
+                                </label>
+
+                                <textarea
+                                    rows="2"
+                                    placeholder="Add any special notes..."
+                                    className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[13px] font-medium text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm backdrop-blur-sm"
+                                    value={form.notes}
+                                    onChange={(e) => setForm({
+                                        ...form,
+                                        notes: e.target.value
+                                    })}
+                                ></textarea>
                             </div>
 
-                            <button type="submit" disabled={submitting} className="w-full mt-4 bg-indigo-500/90 backdrop-blur-md text-white font-bold py-3.5 rounded-2xl shadow-[0_10px_25px_-5px_rgba(99,102,241,0.4)] border border-indigo-400/50 hover:bg-indigo-600 transition-all active:scale-[0.98] text-[15px] disabled:opacity-50 cursor-pointer">
-                                {submitting ? 'Saving...' : editingRxId ? 'Update Prescription' : 'Save Prescription'}
+                            <button
+                                type="submit"
+                                disabled={submitting}
+                                className="w-full mt-4 bg-indigo-500/90 backdrop-blur-md text-white font-bold py-3.5 rounded-2xl shadow-[0_10px_25px_-5px_rgba(99,102,241,0.4)] border border-indigo-400/50 hover:bg-indigo-600 transition-all active:scale-[0.98] text-[15px] disabled:opacity-50 cursor-pointer"
+                            >
+                                {submitting
+                                    ? 'Saving...'
+                                    : editingRxId
+                                        ? 'Update Prescription'
+                                        : 'Save Prescription'}
                             </button>
                         </form>
                     </div>
@@ -904,90 +1805,176 @@ export default function CashierPrescriptionsPage() {
             {selectedRx && createPortal(
                 <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-[9999] p-4 print:bg-white print:p-0 print:backdrop-blur-none">
                     <div className="bg-white/90 backdrop-blur-2xl rounded-[32px] border border-white shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] w-full max-w-[600px] max-h-[90vh] flex flex-col overflow-hidden print:border-none print:shadow-none print:w-full print:max-w-none print:h-auto print:overflow-visible print:bg-white">
-
                         <div className="px-8 py-5 border-b border-white/50 flex justify-between items-center bg-white/40 shrink-0 print:hidden">
                             <h2 className="text-[18px] font-bold text-slate-800 flex items-center gap-2">
-                                <FileText className="text-indigo-600 w-5 h-5"/> Prescription Details
+                                <FileText className="text-indigo-600 w-5 h-5" />
+                                Prescription Details
                             </h2>
-                            <button onClick={() => setSelectedRx(null)} className="hover:bg-white/60 p-2 rounded-full transition-colors border border-transparent hover:border-white/80 cursor-pointer text-slate-500">
+
+                            <button
+                                onClick={() => setSelectedRx(null)}
+                                className="hover:bg-white/60 p-2 rounded-full transition-colors border border-transparent hover:border-white/80 cursor-pointer text-slate-500"
+                            >
                                 <X size={20} strokeWidth={2.5} />
                             </button>
                         </div>
 
-                        <div className="p-8 flex-1 overflow-y-auto print:overflow-visible hide-scrollbar" id="printable-rx">
+                        <div
+                            className="p-8 flex-1 overflow-y-auto print:overflow-visible hide-scrollbar"
+                            id="printable-rx"
+                        >
                             <div className="hidden print:block text-center mb-8 border-b border-slate-200 pb-6">
-                                <h1 className="text-3xl font-black text-slate-800 tracking-tight">Kegalle Rx</h1>
-                                <p className="text-sm text-slate-500 font-bold uppercase tracking-widest mt-1">Official Prescription Record</p>
+                                <h1 className="text-3xl font-black text-slate-800 tracking-tight">
+                                    Kegalle Rx
+                                </h1>
+
+                                <p className="text-sm text-slate-500 font-bold uppercase tracking-widest mt-1">
+                                    Official Prescription Record
+                                </p>
                             </div>
 
                             <div className="space-y-6 text-sm font-medium text-slate-700">
-
                                 {selectedRx.digitalCopyUrl && (
                                     <div className="mb-6 p-4 border border-indigo-100 bg-indigo-50/30 rounded-2xl print:hidden">
                                         <p className="text-[11px] font-bold text-indigo-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                                            <ImageIcon size={14}/> Original Uploaded Document
+                                            <ImageIcon size={14} />
+                                            Original Uploaded Document
                                         </p>
+
                                         <div className="w-full h-48 overflow-hidden rounded-xl bg-white border border-white/80">
-                                            <img src={selectedRx.digitalCopyUrl} alt="Original Prescription" className="w-full h-full object-contain" />
+                                            <img
+                                                src={selectedRx.digitalCopyUrl}
+                                                alt="Original Prescription"
+                                                className="w-full h-full object-contain"
+                                            />
                                         </div>
                                     </div>
                                 )}
 
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="p-4 bg-white/60 rounded-2xl border border-white/80 shadow-sm print:border-none print:bg-transparent print:p-0 print:shadow-none">
-                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">RX Number</p>
-                                        <p className="font-mono font-black text-indigo-600 text-lg">RX-{String(selectedRx.id).padStart(4, '0')}</p>
+                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                            RX Number
+                                        </p>
+
+                                        <p className="font-mono font-black text-indigo-600 text-lg">
+                                            RX-{String(selectedRx.id).padStart(4, '0')}
+                                        </p>
                                     </div>
+
                                     <div className="p-4 bg-white/60 rounded-2xl border border-white/80 shadow-sm print:border-none print:bg-transparent print:p-0 print:shadow-none">
-                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Status</p>
-                                        <p className={`font-bold ${selectedRx.status === 'Dispensed' ? 'text-emerald-600' : 'text-amber-600'}`}>{selectedRx.status}</p>
+                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                            Status
+                                        </p>
+
+                                        <p className={`font-bold ${selectedRx.status === 'Dispensed' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                            {selectedRx.status}
+                                        </p>
                                     </div>
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:grid-cols-2">
                                     <div>
-                                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 border-b border-slate-200/50 pb-1">Patient Info</p>
-                                        <p className="font-bold text-slate-800 text-base">{selectedRx.patientName || selectedRx.patient?.name || 'N/A'}</p>
+                                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 border-b border-slate-200/50 pb-1">
+                                            Patient Info
+                                        </p>
+
+                                        <p className="font-bold text-slate-800 text-base">
+                                            {selectedRx.patientName || selectedRx.patient?.name || 'N/A'}
+                                        </p>
+
                                         {(selectedRx.patientNic || selectedRx.patient?.nic) && (
-                                            <p className="text-slate-500 mt-1 text-xs">NIC: {selectedRx.patientNic || selectedRx.patient.nic}</p>
+                                            <p className="text-slate-500 mt-1 text-xs">
+                                                NIC: {selectedRx.patientNic || selectedRx.patient.nic}
+                                            </p>
                                         )}
-                                        {selectedRx.patientAge && <p className="text-slate-500 mt-1 text-xs">Age: {selectedRx.patientAge} Years</p>}
-                                        {selectedRx.patientGender && <p className="text-slate-500 mt-1 text-xs">Gender: {selectedRx.patientGender}</p>}
-                                        {selectedRx.patientContactNumber && <p className="text-slate-500 mt-1 text-xs">Tel: {selectedRx.patientContactNumber}</p>}
-                                        <p className="text-slate-500 mt-1 text-xs">Date: {selectedRx.prescriptionDate}</p>
+
+                                        {selectedRx.patientAge && (
+                                            <p className="text-slate-500 mt-1 text-xs">
+                                                Age: {selectedRx.patientAge} Years
+                                            </p>
+                                        )}
+
+                                        {selectedRx.patientGender && (
+                                            <p className="text-slate-500 mt-1 text-xs">
+                                                Gender: {selectedRx.patientGender}
+                                            </p>
+                                        )}
+
+                                        {selectedRx.patientContactNumber && (
+                                            <p className="text-slate-500 mt-1 text-xs">
+                                                Tel: {selectedRx.patientContactNumber}
+                                            </p>
+                                        )}
+
+                                        <p className="text-slate-500 mt-1 text-xs">
+                                            Date: {selectedRx.prescriptionDate}
+                                        </p>
                                     </div>
+
                                     <div>
-                                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 border-b border-slate-200/50 pb-1">Prescriber Info</p>
-                                        <p className="font-bold text-slate-800 text-base">Dr. {selectedRx.doctorName || selectedRx.doctor?.name || 'N/A'}</p>
-                                        {selectedRx.doctorSpecialization && <p className="text-slate-500 text-xs mt-0.5">{selectedRx.doctorSpecialization}</p>}
-                                        {selectedRx.doctorContactNumber && <p className="text-slate-500 text-xs mt-0.5">Tel: {selectedRx.doctorContactNumber}</p>}
+                                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 border-b border-slate-200/50 pb-1">
+                                            Prescriber Info
+                                        </p>
+
+                                        <p className="font-bold text-slate-800 text-base">
+                                            {selectedRx.doctorName.startsWith('Dr.')
+                                                ? selectedRx.doctorName
+                                                : `Dr. ${selectedRx.doctorName || selectedRx.doctor?.name || 'N/A'}`}
+                                        </p>
+
+                                        {selectedRx.doctorSpecialization && (
+                                            <p className="text-slate-500 text-xs mt-0.5">
+                                                {selectedRx.doctorSpecialization}
+                                            </p>
+                                        )}
+
+                                        {selectedRx.doctorContactNumber && (
+                                            <p className="text-slate-500 text-xs mt-0.5">
+                                                Tel: {selectedRx.doctorContactNumber}
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
 
                                 <div className="pt-4">
                                     <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3 border-b border-slate-200/50 pb-1 flex items-center gap-1.5">
-                                        <Pill size={14} className="text-indigo-500"/> Prescribed Medicines
+                                        <Pill size={14} className="text-indigo-500" />
+                                        Prescribed Medicines
                                     </p>
+
                                     <div className="space-y-3">
                                         {getItemsFromRx(selectedRx).length > 0 ? (
                                             <div className="overflow-hidden rounded-xl border border-white/80 shadow-sm print:border-none print:shadow-none">
                                                 <table className="w-full text-left border-collapse bg-white/60 print:bg-transparent">
                                                     <thead>
                                                     <tr className="bg-white/40 text-[10px] text-slate-500 uppercase tracking-wider border-b border-white/80 print:bg-transparent print:border-b-2 print:border-slate-300">
-                                                        <th className="py-3 px-4">Medicine</th>
-                                                        <th className="py-3 px-4">Dosage</th>
-                                                        <th className="py-3 px-4 text-center">Qty</th>
+                                                        <th className="py-3 px-4">
+                                                            Medicine
+                                                        </th>
+                                                        <th className="py-3 px-4">
+                                                            Dosage
+                                                        </th>
+                                                        <th className="py-3 px-4 text-center">
+                                                            Qty
+                                                        </th>
                                                     </tr>
                                                     </thead>
+
                                                     <tbody>
                                                     {getItemsFromRx(selectedRx).map((it, idx) => (
-                                                        <tr key={idx} className="border-b border-white/60 last:border-0 print:border-b print:border-slate-100">
+                                                        <tr
+                                                            key={idx}
+                                                            className="border-b border-white/60 last:border-0 print:border-b print:border-slate-100"
+                                                        >
                                                             <td className="py-3 px-4 font-bold text-slate-800 text-xs">
                                                                 {it.medicineName || it.medicine?.name || 'Unknown Medicine'}
                                                             </td>
+
                                                             <td className="py-3 px-4 text-xs text-slate-600 font-mono">
                                                                 {it.dosageInstructions || '-'}
                                                             </td>
+
                                                             <td className="py-3 px-4 text-center font-bold text-indigo-600">
                                                                 {it.quantity}
                                                             </td>
@@ -997,7 +1984,9 @@ export default function CashierPrescriptionsPage() {
                                                 </table>
                                             </div>
                                         ) : (
-                                            <p className="text-xs text-slate-500 italic bg-white/60 border border-white/80 p-4 rounded-xl text-center shadow-sm print:bg-transparent print:border-none">No specific medicines attached.</p>
+                                            <p className="text-xs text-slate-500 italic bg-white/60 border border-white/80 p-4 rounded-xl text-center shadow-sm print:bg-transparent print:border-none">
+                                                No specific medicines attached.
+                                            </p>
                                         )}
                                     </div>
                                 </div>
@@ -1005,8 +1994,10 @@ export default function CashierPrescriptionsPage() {
                                 {selectedRx.notes && (
                                     <div className="pt-4">
                                         <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 border-b border-slate-200/50 pb-1 flex items-center gap-1.5">
-                                            <FileText size={14} className="text-indigo-500"/> Additional Notes
+                                            <FileText size={14} className="text-indigo-500" />
+                                            Additional Notes
                                         </p>
+
                                         <p className="p-4 bg-amber-50/50 border border-amber-100/50 rounded-xl text-slate-700 text-xs italic leading-relaxed shadow-sm print:bg-transparent print:border-slate-300 print:shadow-none">
                                             "{selectedRx.notes}"
                                         </p>
@@ -1015,17 +2006,27 @@ export default function CashierPrescriptionsPage() {
                             </div>
 
                             <div className="hidden print:block mt-12 pt-6 border-t-2 border-dashed border-slate-300 text-[10px] text-slate-400 text-center">
-                                <p>This is a system generated document from Kegalle Rx Pharmacy System.</p>
+                                <p>
+                                    This is a system generated document from Kegalle Rx Pharmacy System.
+                                </p>
                                 <p>{new Date().toLocaleString()}</p>
                             </div>
                         </div>
 
                         <div className="p-5 border-t border-white/50 bg-white/40 shrink-0 print:hidden flex justify-end gap-3">
-                            <button onClick={() => setSelectedRx(null)} className="px-5 py-2.5 bg-white/80 border border-white/80 text-slate-600 font-bold text-sm rounded-xl hover:bg-white transition-colors cursor-pointer shadow-sm">
+                            <button
+                                onClick={() => setSelectedRx(null)}
+                                className="px-5 py-2.5 bg-white/80 border border-white/80 text-slate-600 font-bold text-sm rounded-xl hover:bg-white transition-colors cursor-pointer shadow-sm"
+                            >
                                 Close
                             </button>
-                            <button onClick={() => window.print()} className="flex items-center gap-2 px-5 py-2.5 bg-indigo-500/90 border border-indigo-400/50 text-white font-bold text-sm rounded-xl hover:bg-indigo-600 transition-colors shadow-md cursor-pointer">
-                                <Printer size={16}/> Print Document
+
+                            <button
+                                onClick={() => window.print()}
+                                className="flex items-center gap-2 px-5 py-2.5 bg-indigo-500/90 border border-indigo-400/50 text-white font-bold text-sm rounded-xl hover:bg-indigo-600 transition-colors shadow-md cursor-pointer"
+                            >
+                                <Printer size={16} />
+                                Print Document
                             </button>
                         </div>
                     </div>
