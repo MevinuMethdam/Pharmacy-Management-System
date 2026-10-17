@@ -1,9 +1,11 @@
 const sequelize = require('../config/db');
 const Medicine = require('../models/Medicine');
-// const Sale = require('../models/Sale');
 const SaleItem = require('../models/SaleItem');
 const Prescription = require('../models/Prescription');
 const NmraLog = require('../models/NmraLog');
+
+const Customer = require('../models/Customer');
+const { Op } = require('sequelize');
 
 exports.createSale = async (req, res) => {
     const t = await sequelize.transaction();
@@ -102,6 +104,36 @@ exports.createSale = async (req, res) => {
             }
         }
 
+        if (customerName && customerName !== 'Walk-in Customer') {
+            const customer = await Customer.findOne({
+                where: {
+                    [Op.or]: [
+                        { name: customerName },
+                        { contactNumber: customerName },
+                        { nic: customerName }
+                    ]
+                },
+                transaction: t
+            });
+
+            if (customer) {
+                const currentPoints = customer.loyaltyPoints || 0;
+
+                const pointsToDeduct = Math.min(totalAmount, currentPoints);
+
+                let earnedPoints = Math.floor(totalAmount / 100) + 10;
+
+                if (customer.age && parseInt(customer.age) > 60) {
+                    earnedPoints += 20;
+                }
+                const newLoyaltyPoints = (currentPoints - pointsToDeduct) + earnedPoints;
+
+                await customer.update({
+                    loyaltyPoints: newLoyaltyPoints
+                }, { transaction: t });
+            }
+        }
+
         await t.commit();
 
         const io = req.app.get('io');
@@ -111,7 +143,7 @@ exports.createSale = async (req, res) => {
                 id: Date.now(),
                 type: 'success',
                 title: 'New Sale Completed',
-                message: `Invoice #${saleIdStr.slice(0, 8).padStart(4, '0')} - LKR ${totalAmount.toFixed(2)}`,
+                message: `Invoice #${saleIdStr.slice(0, 8).padStart(4, '0')} LKR ${totalAmount.toFixed(2)}`,
                 time: new Date()
             });
         }
