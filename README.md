@@ -1,4 +1,4 @@
-# Kegalle Ph4Life — Pharmacy Management System
+# Kegalle Ph4Life - Pharmacy Management System
 
 **An integrated pharmacy platform for inventory, prescriptions, point-of-sale billing, customer relationships, supplier operations, and AI-assisted insights.**
 
