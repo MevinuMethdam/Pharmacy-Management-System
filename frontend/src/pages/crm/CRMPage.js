@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import AdminLayout from '../../components/layout/AdminLayout';
-import { Search, Plus, Users, Edit, Trash2, Phone, Mail, MapPin, X, Star, Activity, CreditCard, Sparkles, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Search, Plus, Users, Edit, Trash2, Phone, Mail, MapPin, X, Star, Activity, CreditCard, AlertCircle } from 'lucide-react';
 import axios from '../../api/axiosInstance';
 import toast from 'react-hot-toast';
+import io from 'socket.io-client';
 import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
 
@@ -19,11 +20,6 @@ export default function CRMPage() {
 
     const [formErrors, setFormErrors] = useState({});
 
-    const [showAIInsightsModal, setShowAIInsightsModal] = useState(false);
-    const [selectedCustomerForAI, setSelectedCustomerForAI] = useState(null);
-    const [aiInsightLoading, setAiInsightLoading] = useState(false);
-    const [aiRecommendation, setAiRecommendation] = useState(null);
-
     const [customerForm, setCustomerForm] = useState({
         name: '',
         nic: '',
@@ -35,31 +31,74 @@ export default function CRMPage() {
         loyaltyPoints: 0
     });
 
-    const fetchData = async (controller = null) => {
-        setLoading(true);
+    const activeRequest = useRef(null);
+    const requestVersion = useRef(0);
+    const mounted = useRef(false);
+    const foregroundPending = useRef(false);
+
+    const fetchData = useCallback(async (controller = null, silent = false) => {
+        if (!mounted.current || (silent && activeRequest.current)) return;
+
+        activeRequest.current?.abort();
+        const currentController = controller || new AbortController();
+        const version = ++requestVersion.current;
+        activeRequest.current = currentController;
+        foregroundPending.current = !silent;
+
+        if (!silent) setLoading(true);
+
         try {
-            const config = {
-                ...(controller ? { signal: controller.signal } : {})
-            };
-            const res = await axios.get('http://localhost:5000/api/crm/customers', config);
-            setCustomers(res.data || []);
+            const res = await axios.get('http://localhost:5000/api/crm/customers', {
+                signal: currentController.signal
+            });
+
+            if (mounted.current && version === requestVersion.current && !currentController.signal.aborted) {
+                setCustomers(res.data || []);
+            }
         } catch (err) {
-            if (!axios.isCancel(err)) {
+            if (mounted.current && version === requestVersion.current &&
+                !currentController.signal.aborted && !axios.isCancel(err) && !silent) {
                 toast.error('Failed to load CRM data');
             }
         } finally {
-            setLoading(false);
+            if (version === requestVersion.current) {
+                activeRequest.current = null;
+                foregroundPending.current = false;
+                if (mounted.current && !silent) setLoading(false);
+            }
         }
-    };
+    }, []);
 
     useEffect(() => {
+        mounted.current = true;
         const controller = new AbortController();
         fetchData(controller);
 
-        return () => {
-            controller.abort();
+        const refreshCustomers = () => {
+            if (!document.hidden) fetchData(null, true);
         };
-    }, []);
+
+        const socket = io('http://localhost:5000');
+        socket.on('receive_notification', refreshCustomers);
+        socket.on('connect', refreshCustomers);
+        window.addEventListener('focus', refreshCustomers);
+        document.addEventListener('visibilitychange', refreshCustomers);
+        const timer = window.setInterval(refreshCustomers, 5000);
+
+        return () => {
+            mounted.current = false;
+            requestVersion.current += 1;
+            controller.abort();
+            activeRequest.current?.abort();
+            foregroundPending.current = false;
+            window.clearInterval(timer);
+            window.removeEventListener('focus', refreshCustomers);
+            document.removeEventListener('visibilitychange', refreshCustomers);
+            socket.off('receive_notification', refreshCustomers);
+            socket.off('connect', refreshCustomers);
+            socket.disconnect();
+        };
+    }, [fetchData]);
 
     const handleNicChange = (val, currentAge) => {
         const nicValue = val.toUpperCase();
@@ -88,6 +127,9 @@ export default function CRMPage() {
                 error = 'Only numbers are allowed.';
             } else if (val.length < 10) {
                 error = 'Contact Number must be 10 digits.';
+            } else {
+                const isDup = customers.some(c => c.contactNumber === val && c.id !== editingCustomer?.id);
+                if (isDup) error = 'This Contact Number is already registered.';
             }
         }
         setFormErrors(prev => ({ ...prev, contactNumber: error }));
@@ -121,6 +163,12 @@ export default function CRMPage() {
         const phoneRegex = /^[0-9]{10}$/;
         if (!phoneRegex.test(customerForm.contactNumber)) {
             toast.error('Please enter a valid 10-digit contact number (e.g. 0771234567)');
+            return false;
+        }
+
+        const isContactDup = customers.some(c => c.contactNumber === customerForm.contactNumber && c.id !== editingCustomer?.id);
+        if (isContactDup) {
+            toast.error('This Contact Number is already registered to another patient.');
             return false;
         }
 
@@ -224,42 +272,6 @@ export default function CRMPage() {
         setEditingCustomer(null);
         setFormErrors({});
         setCustomerForm({ name: '', nic: '', contactNumber: '', age: '', gender: '', email: '', address: '', loyaltyPoints: 0 });
-    };
-
-    const openAIHealthInsights = async (customer) => {
-        setSelectedCustomerForAI(customer);
-        setShowAIInsightsModal(true);
-        setAiInsightLoading(true);
-        setAiRecommendation(null);
-
-        try {
-            const res = await axios.get(`http://localhost:5000/api/crm/customers/${customer.id}/ai-insights`);
-            setAiRecommendation(res.data);
-        } catch (error) {
-            if (!axios.isCancel(error)) {
-                console.error(error);
-                toast.error("Failed to connect to AI. Please try again.");
-                setShowAIInsightsModal(false);
-            }
-        } finally {
-            setAiInsightLoading(false);
-        }
-    };
-
-    const applyAIBonus = async () => {
-        if (!selectedCustomerForAI || !aiRecommendation) return;
-        try {
-            const updatedPoints = (selectedCustomerForAI.loyaltyPoints || 0) + aiRecommendation.autoBonus;
-            await axios.put(`http://localhost:5000/api/crm/customers/${selectedCustomerForAI.id}`, {
-                ...selectedCustomerForAI,
-                loyaltyPoints: updatedPoints
-            });
-            toast.success(`Successfully added +${aiRecommendation.autoBonus} AI Loyalty Bonus! 🎉`, { icon: '✨' });
-            setShowAIInsightsModal(false);
-            fetchData();
-        } catch (err) {
-            toast.error('Failed to apply AI loyalty bonus');
-        }
     };
 
     const filteredCustomers = customers.filter(c =>
@@ -374,7 +386,7 @@ export default function CRMPage() {
                                 <h1 className="text-[26px] font-bold text-[#1e293b] tracking-tight leading-none">CRM & Loyalty</h1>
                             </div>
                             <p className="text-[13px] text-slate-500 mt-1.5 font-medium ml-14">
-                                Manage patient profiles, loyalty points, and AI health recommendations
+                                Manage patient profiles, loyalty points, and health recommendations
                             </p>
                         </div>
 
@@ -425,7 +437,9 @@ export default function CRMPage() {
                                 <thead>
                                 <tr>
                                     <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Name</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Age / Gender / NIC</th>
+                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Age</th>
+                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Gender</th>
+                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">NIC Number</th>
                                     <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Contact</th>
                                     <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Address</th>
                                     <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30">Loyalty Points</th>
@@ -434,15 +448,20 @@ export default function CRMPage() {
                                 </thead>
                                 <tbody>
                                 {loading ? (
-                                    <tr><td colSpan="6" className="text-center py-16 text-slate-500 font-medium text-[13px]">Loading data...</td></tr>
+                                    <tr><td colSpan="8" className="text-center py-16 text-slate-500 font-medium text-[13px]">Loading data...</td></tr>
                                 ) : filteredCustomers.length === 0 ? (
-                                    <tr><td colSpan="6" className="text-center py-16 text-slate-500 font-medium text-[13px]">No customers found.</td></tr>
+                                    <tr><td colSpan="8" className="text-center py-16 text-slate-500 font-medium text-[13px]">No customers found.</td></tr>
                                 ) : filteredCustomers.map((customer) => (
                                     <tr key={`c-${customer.id}`} className="group hover:bg-white/20 transition-colors border-b border-white/20 last:border-0">
                                         <td className="py-4 align-top pt-5 text-[14px] font-bold text-[#1e293b]">{customer.name}</td>
                                         <td className="py-4 align-top pt-5 text-[13px] font-medium text-slate-600">
-                                            {customer.age ? `${customer.age} Yrs • ` : ''}{customer.gender}
-                                            {customer.nic && <span className="block text-[11px] text-teal-700 font-bold mt-1"><CreditCard size={12} className="inline mr-1 -mt-0.5" />{customer.nic}</span>}
+                                            {customer.age ? `${customer.age} Yrs` : '-'}
+                                        </td>
+                                        <td className="py-4 align-top pt-5 text-[13px] font-medium text-slate-600">
+                                            {customer.gender || '-'}
+                                        </td>
+                                        <td className="py-4 align-top pt-5 text-[13px] font-medium text-slate-600">
+                                            {customer.nic ? <span className="flex items-center gap-1.5 text-teal-700 font-bold"><CreditCard size={14}/> {customer.nic}</span> : '-'}
                                         </td>
                                         <td className="py-4 align-top pt-5 text-[13px] font-medium text-slate-600 space-y-1.5">
                                             <div className="flex items-center gap-1.5"><Phone size={14} className="text-slate-400"/> {customer.contactNumber}</div>
@@ -452,10 +471,6 @@ export default function CRMPage() {
                                         <td className="py-4 align-top pt-5 text-[15px] font-black text-amber-500 flex items-center gap-1.5"><Star size={16} className="fill-amber-500 text-amber-500"/> {customer.loyaltyPoints}</td>
                                         <td className="py-4 align-top pt-4 text-right">
                                             <div className="flex justify-end gap-2">
-
-                                                <button onClick={() => openAIHealthInsights(customer)} className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100/50 rounded-lg transition-colors cursor-pointer" title="AI Health Insights & Perks">
-                                                    <Sparkles size={16} />
-                                                </button>
                                                 <button onClick={() => openEditCustomer(customer)} className="p-1.5 text-slate-500 hover:text-teal-700 hover:bg-teal-100/50 rounded-lg transition-colors cursor-pointer" title="Edit Patient"><Edit size={16} /></button>
                                                 <button onClick={() => handleDeleteCustomer(customer.id)} className="p-1.5 text-slate-500 hover:text-rose-700 hover:bg-rose-100/50 rounded-lg transition-colors cursor-pointer" title="Delete Patient"><Trash2 size={16} /></button>
                                             </div>
@@ -468,58 +483,6 @@ export default function CRMPage() {
                     </div>
                 </div>
             </div>
-            {showAIInsightsModal && selectedCustomerForAI && createPortal(
-                <div className="fixed inset-0 bg-black/40 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
-                    <div className="bg-white/95 backdrop-blur-2xl p-8 rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[550px] relative overflow-hidden">
-                        <button onClick={() => setShowAIInsightsModal(false)} className="absolute top-6 right-6 hover:bg-slate-100 p-2 rounded-full transition-colors cursor-pointer text-slate-400">
-                            <X size={20}/>
-                        </button>
-
-                        <div className="flex items-center gap-3 mb-6">
-                            <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center border border-indigo-100 text-indigo-600 shadow-inner">
-                                <Sparkles size={24} />
-                            </div>
-                            <div>
-                                <h2 className="text-[18px] font-bold text-slate-800">AI Health & Loyalty Advisor</h2>
-                                <p className="text-[12px] text-slate-500 font-medium">Customer: <span className="font-bold text-slate-700">{selectedCustomerForAI.name}</span></p>
-                            </div>
-                        </div>
-
-                        {aiInsightLoading ? (
-                            <div className="py-12 flex flex-col items-center justify-center">
-                                <div className="w-10 h-10 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-3"></div>
-                                <p className="text-[14px] font-bold text-slate-700">Analyzing purchase & health history with AI...</p>
-                            </div>
-                        ) : aiRecommendation && (
-                            <div className="space-y-4">
-                                <div className="p-4 bg-indigo-50/60 rounded-2xl border border-indigo-100 space-y-2">
-                                    <p className="text-[11px] font-bold text-indigo-500 uppercase tracking-wider flex items-center gap-1.5"><ShieldCheck size={14}/> Health Profile Analysis</p>
-                                    <p className="text-[14px] font-bold text-indigo-950">{aiRecommendation.healthProfile}</p>
-                                </div>
-
-                                <div className="p-4 bg-amber-50/60 rounded-2xl border border-amber-100 space-y-2">
-                                    <p className="text-[11px] font-bold text-amber-600 uppercase tracking-wider flex items-center gap-1.5"><Star size={14}/> Recommended Loyalty Perk</p>
-                                    <p className="text-[14px] font-bold text-amber-950">{aiRecommendation.recommendedPerk}</p>
-                                </div>
-
-                                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                                    <div>
-                                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">AI Auto-Boost Bonus</p>
-                                        <p className="text-[16px] font-black text-amber-500 flex items-center gap-1 mt-0.5"><Star size={16} className="fill-amber-500"/> +{aiRecommendation.autoBonus} Loyalty Points</p>
-                                    </div>
-                                    <button
-                                        onClick={applyAIBonus}
-                                        className="px-5 py-2.5 bg-indigo-600 text-white font-bold rounded-xl text-[13px] hover:bg-indigo-700 transition-all shadow-md cursor-pointer flex items-center gap-2"
-                                    >
-                                        <Sparkles size={14} /> Apply AI Bonus
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>,
-                document.body
-            )}
 
             {isCustomerModalOpen && createPortal(
                 <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
