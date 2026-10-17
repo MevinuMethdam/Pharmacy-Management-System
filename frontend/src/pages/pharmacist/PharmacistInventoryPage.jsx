@@ -1,0 +1,956 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import PharmacistLayout from '../../components/layout/PharmacistLayout';
+import { Package, Plus, Search, Edit, Trash2, Truck, ShieldAlert, X, ScanBarcode, MapPin, Pill, AlertTriangle, CheckCircle, Archive, RefreshCw } from 'lucide-react';
+import { inventoryApi } from '../../api/inventoryApi';
+import toast from 'react-hot-toast';
+import axios from '../../api/axiosInstance';
+
+const DOSAGE_UNITS = ["mg", "mcg", "g", "ml", "mg/ml", "IU", "%"];
+const COMMON_DOSAGES = ["250mg", "500mg", "1g", "5ml"];
+
+const BIN_CAPACITY = 100;
+
+const isValidFormatAndLimits = (loc) => {
+    if (!loc) return false;
+    const match = loc.match(/^R(\d+)-S(\d+)-B(\d+)$/i);
+    if (!match) return false;
+    const r = parseInt(match[1], 10);
+    const s = parseInt(match[2], 10);
+    const b = parseInt(match[3], 10);
+    return r >= 1 && r <= 20 && s >= 1 && s <= 10 && b >= 1 && b <= 10;
+};
+
+const cleanRackFormat = (loc) => {
+    if (!loc) return '';
+    return loc.replace(/^[A-Z]{3}-/i, '').toUpperCase();
+};
+
+const toAbsoluteBin = (r, s, b) => {
+    return (r - 1) * 100 + (s - 1) * 10 + (b - 1);
+};
+
+const fromAbsToString = (abs) => {
+    const r = Math.floor(abs / 100) + 1;
+    const rem = abs % 100;
+    const s = Math.floor(rem / 10) + 1;
+    const b = (rem % 10) + 1;
+    const format2 = (n) => n.toString().padStart(2, '0');
+    return `R${format2(r)}-S${format2(s)}-B${format2(b)}`;
+};
+
+const generateSmartRackLocation = (allMedicines) => {
+    let maxAbsBin = -1;
+
+    allMedicines.forEach(m => {
+        if (!m.rackLocation || Number(m.quantity) <= 0) return;
+
+        const cleanedLoc = cleanRackFormat(m.rackLocation);
+        const match = cleanedLoc.match(/^R(\d+)-S(\d+)-B(\d+)$/i);
+
+        if (match) {
+            const r = parseInt(match[1], 10);
+            const s = parseInt(match[2], 10);
+            const b = parseInt(match[3], 10);
+
+            if (r >= 1 && r <= 20 && s >= 1 && s <= 10 && b >= 1 && b <= 10) {
+                const startAbs = toAbsoluteBin(r, s, b);
+                const binsTaken = Math.ceil((Number(m.quantity) || 1) / BIN_CAPACITY);
+                const endAbs = startAbs + binsTaken - 1;
+
+                if (endAbs > maxAbsBin) {
+                    maxAbsBin = endAbs;
+                }
+            }
+        }
+    });
+
+    let nextAbsBin = maxAbsBin + 1;
+    if (nextAbsBin > 1999) nextAbsBin = 1999;
+
+    return fromAbsToString(nextAbsBin);
+};
+
+const calculateBinSpan = (startLoc, qty) => {
+    if (!isValidFormatAndLimits(startLoc) || !qty || qty <= 0) return null;
+    const match = startLoc.match(/^R(\d+)-S(\d+)-B(\d+)$/i);
+    const r = parseInt(match[1], 10);
+    const s = parseInt(match[2], 10);
+    const b = parseInt(match[3], 10);
+
+    const startAbs = toAbsoluteBin(r, s, b);
+    const binsNeeded = Math.ceil(Number(qty) / BIN_CAPACITY);
+
+    if (binsNeeded <= 1) return { text: "Fits in 1 Bin", endLoc: startLoc, span: 1 };
+
+    let endAbs = startAbs + binsNeeded - 1;
+    if (endAbs > 1999) endAbs = 1999;
+
+    const endLoc = fromAbsToString(endAbs);
+
+    return { text: `Spans ${binsNeeded} Bins (Limit: ${BIN_CAPACITY}/bin)`, endLoc, span: binsNeeded };
+};
+
+const getRackError = (loc, currentQty, editingId, medicines) => {
+    if (!loc) return 'Rack location is required!';
+
+    const regex = /^R(\d+)-S(\d+)-B(\d+)$/i;
+    const match = loc.match(regex);
+
+    if (!match) return 'Format must be exactly: R00-S00-B00';
+
+    const rack = parseInt(match[1], 10);
+    const shelf = parseInt(match[2], 10);
+    const bin = parseInt(match[3], 10);
+
+    if (rack < 1 || rack > 20) return 'Invalid Rack! Maximum 20 Racks allowed.';
+    if (shelf < 1 || shelf > 10) return 'Invalid Shelf! Maximum 10 Shelves per rack allowed.';
+    if (bin < 1 || bin > 10) return 'Invalid Bin! Maximum 10 Bins per shelf allowed.';
+
+    const reqStartAbs = toAbsoluteBin(rack, shelf, bin);
+    const reqBinsTaken = Math.ceil((Number(currentQty) || 1) / BIN_CAPACITY);
+    const reqEndAbs = reqStartAbs + reqBinsTaken - 1;
+
+    if (reqEndAbs > 1999) return `Quantity requires ${reqBinsTaken} bins, which exceeds max pharmacy capacity!`;
+
+    for (let m of medicines) {
+        if (String(m.id) === String(editingId)) continue;
+        if (!m.rackLocation || Number(m.quantity) <= 0) continue;
+
+        const mLoc = cleanRackFormat(m.rackLocation);
+        const mMatch = mLoc.match(/^R(\d+)-S(\d+)-B(\d+)$/i);
+
+        if (mMatch) {
+            const mr = parseInt(mMatch[1], 10);
+            const ms = parseInt(mMatch[2], 10);
+            const mb = parseInt(mMatch[3], 10);
+
+            if (mr >= 1 && mr <= 20 && ms >= 1 && ms <= 10 && mb >= 1 && mb <= 10) {
+                const mStartAbs = toAbsoluteBin(mr, ms, mb);
+                const mBinsTaken = Math.ceil((Number(m.quantity) || 1) / BIN_CAPACITY);
+                const mEndAbs = mStartAbs + mBinsTaken - 1;
+
+                if (Math.max(reqStartAbs, mStartAbs) <= Math.min(reqEndAbs, mEndAbs)) {
+                    return `Location blocked! ${m.name} occupies bins up to ${fromAbsToString(mEndAbs)}`;
+                }
+            }
+        }
+    }
+
+    return '';
+};
+
+export default function PharmacistInventoryPage() {
+    const [medicines, setMedicines] = useState([]);
+    const [suppliers, setSuppliers] = useState([]);
+    const [medSupplierMap, setMedSupplierMap] = useState({});
+
+    const [latestMedDetails, setLatestMedDetails] = useState({});
+
+    const [loading, setLoading] = useState(true);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [editingId, setEditingId] = useState(null);
+
+    const [actionModal, setActionModal] = useState({ isOpen: false, medicine: null });
+
+    const [formData, setFormData] = useState({
+        name: '', genericName: '', category: '', dosage: '', barcode: '', rackLocation: '', batchNumber: '',
+        quantity: '', costPrice: '', sellingPrice: '', expiryDate: '', minStockLevel: 10, supplierId: '', isControlled: false
+    });
+
+    const checkLowStock = (meds, sups = suppliers, map = medSupplierMap) => {
+        const configuredMeds = meds.filter(m => m.rackLocation && String(m.rackLocation).trim() !== '' && Number(m.quantity) > 0);
+        const lowStockMeds = configuredMeds.filter(m => m.quantity <= Number(m.minStockLevel || 10));
+
+        if (lowStockMeds.length > 0) {
+            toast.custom((t) => (
+                <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-white shadow-xl rounded-2xl pointer-events-auto flex ring-1 ring-black/5`}>
+                    <div className="flex-1 w-0 p-4">
+                        <div className="flex items-start">
+                            <div className="flex-shrink-0 pt-0.5">
+                                <AlertTriangle className="h-10 w-10 text-rose-500" />
+                            </div>
+                            <div className="ml-3 flex-1">
+                                <p className="text-[15px] font-bold text-rose-600">
+                                    {lowStockMeds.length} Medicines Low on Stock!
+                                </p>
+                                <div className="mt-1 text-[12px] text-slate-600 max-h-32 overflow-y-auto pr-2 custom-scrollbar bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                    {lowStockMeds.map(m => (
+                                        <div key={m.id} className="mb-2 border-b border-slate-200 last:border-0 pb-2 last:pb-0">
+                                            <span className="font-bold text-slate-800">{m.name}</span>
+                                            <div className="flex justify-between mt-0.5 text-[11px]">
+                                                <span>Min Level: <span className="font-medium text-slate-500">{m.minStockLevel || 10}</span></span>
+                                                <span>Current Qty: <span className="font-black text-rose-600">{m.quantity}</span></span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <p className="mt-3 text-[10px] text-emerald-600 font-bold flex items-center gap-1">
+                                    <CheckCircle size={12}/> Email Alert Sent to Admin & Supplier
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex border-l border-slate-100">
+                        <button onClick={() => toast.dismiss(t.id)} className="w-full border border-transparent rounded-none rounded-r-2xl p-4 flex items-center justify-center text-sm font-bold text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors focus:outline-none cursor-pointer">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            ), { duration: 12000, position: 'bottom-right' });
+
+            const medsWithSuppliers = lowStockMeds.map(m => {
+                const sId = m.supplierId || map[String(m.id)] || map[String(m.name).toLowerCase()];
+                const supplier = sups.find(s => String(s.id) === String(sId));
+                return { ...m, supplier };
+            });
+
+            axios.post('http://localhost:5000/api/notifications/trigger-low-stock-emails', { medicines: medsWithSuppliers })
+                .catch(err => {
+                    if (!axios.isCancel(err)) {
+                        console.log('Low Stock Email trigger request failed.', err);
+                    }
+                });
+        }
+    };
+
+    const fetchData = async (signal) => {
+        setLoading(true);
+        try {
+            const config = signal ? { signal } : {};
+
+            const medRes = await axios.get('http://localhost:5000/api/medicines', config).catch(err => {
+                if (!axios.isCancel(err)) {
+                    console.error("Medicine Error:", err);
+                    if (err.response?.status === 401) toast.error("Session expired! Please Logout and Login again.");
+                }
+                return { data: [] };
+            });
+            const supRes = await axios.get('http://localhost:5000/api/suppliers', config).catch(err => {
+                if (!axios.isCancel(err)) console.error("Supplier Error:", err);
+                return { data: [] };
+            });
+            const purRes = await axios.get('http://localhost:5000/api/purchases', config).catch(err => {
+                if (!axios.isCancel(err)) console.error("Purchase Error:", err);
+                return { data: [] };
+            });
+
+            if (signal && signal.aborted) return;
+
+            const loadedMedicines = Array.isArray(medRes?.data) ? medRes.data : [];
+            const loadedSuppliers = Array.isArray(supRes?.data) ? supRes.data : [];
+            const loadedPurchases = Array.isArray(purRes?.data) ? purRes.data : [];
+
+            const mapping = {};
+            const detailsMap = {};
+
+            const sortedPurchases = [...loadedPurchases].sort((a, b) => new Date(a.invoiceDate || a.createdAt || 0) - new Date(b.invoiceDate || b.createdAt || 0));
+
+            sortedPurchases.forEach(p => {
+                const currentSupId = p.supplierId || (p.supplier ? p.supplier.id : null);
+                const itemsArray = p.items || p.PurchaseItems || p.purchaseItems || p.PurchaseDetails || [];
+
+                if (currentSupId && Array.isArray(itemsArray)) {
+                    itemsArray.forEach(item => {
+                        const currentMedId = item.medicineId || item.MedicineId || (item.medicine ? item.medicine.id : null);
+                        const medName = String(item.name || item.medicineName || '').toLowerCase();
+
+                        if (currentMedId) {
+                            mapping[String(currentMedId)] = String(currentSupId);
+                            detailsMap[String(currentMedId)] = item;
+                        }
+                        if (medName) {
+                            mapping[medName] = String(currentSupId);
+                            detailsMap[medName] = item;
+                        }
+                    });
+                }
+            });
+
+            setMedSupplierMap(mapping);
+            setLatestMedDetails(detailsMap);
+            setMedicines(loadedMedicines);
+            setSuppliers(loadedSuppliers);
+
+            checkLowStock(loadedMedicines, loadedSuppliers, mapping);
+
+        } catch (err) {
+            if (!axios.isCancel(err)) {
+                toast.error('Failed to load inventory data');
+                console.error(err);
+            }
+        } finally {
+            if (!signal || !signal.aborted) {
+                setLoading(false);
+            }
+        }
+    };
+
+    useEffect(() => {
+        const controller = new AbortController();
+        fetchData(controller.signal);
+
+        return () => {
+            controller.abort();
+        };
+    }, []);
+
+    const dosageSuggestions = useMemo(() => {
+        const currentVal = formData.dosage || '';
+        const numMatch = currentVal.match(/^\d+(\.\d+)?/);
+        if (numMatch) {
+            const num = numMatch[0];
+            return DOSAGE_UNITS.map(unit => `${num}${unit}`);
+        }
+        return [...COMMON_DOSAGES, ...DOSAGE_UNITS];
+    }, [formData.dosage]);
+
+    const rackError = getRackError(formData.rackLocation, formData.quantity, editingId, medicines);
+    const binSpanInfo = calculateBinSpan(formData.rackLocation, formData.quantity);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+
+        if (rackError) {
+            toast.error(`Fix Rack Error: ${rackError}`);
+            return;
+        }
+
+        setSubmitting(true);
+        try {
+            if (editingId) {
+                await inventoryApi.update(editingId, formData);
+                toast.success('Medicine pricing & details updated successfully! ✏️');
+            } else {
+                await inventoryApi.add(formData);
+                toast.success('Medicine saved successfully! 🎉');
+            }
+            setIsModalOpen(false);
+            setEditingId(null);
+            setFormData({ name: '', genericName: '', category: '', dosage: '', barcode: '', rackLocation: '', batchNumber: '', quantity: '', costPrice: '', sellingPrice: '', expiryDate: '', minStockLevel: 10, supplierId: '', isControlled: false });
+            fetchData();
+        } catch (err) {
+            console.error("API Error:", err);
+            toast.error(err.response?.data?.error || err.message || 'Failed to save medicine');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleSupplierChange = (e) => {
+        const selectedSupId = e.target.value;
+        setFormData({
+            name: '', genericName: '', category: '', dosage: '', barcode: '', rackLocation: '', batchNumber: '',
+            quantity: '', costPrice: '', sellingPrice: '', expiryDate: '', minStockLevel: 10, supplierId: selectedSupId, isControlled: false
+        });
+        setEditingId(null);
+    };
+
+    const handleMedicineSelect = (e) => {
+        const medId = e.target.value;
+        if (!medId) {
+            setEditingId(null);
+            setFormData(prev => ({
+                ...prev, name: '', genericName: '', category: '', dosage: '', barcode: '',
+                rackLocation: '', batchNumber: '', quantity: '', costPrice: '', sellingPrice: '', expiryDate: '', isControlled: false
+            }));
+            return;
+        }
+
+        const matchedMed = medicines.find(m => String(m.id) === String(medId));
+        if (matchedMed) {
+            setEditingId(matchedMed.id);
+
+            const grnDetails = latestMedDetails[String(matchedMed.id)] || latestMedDetails[String(matchedMed.name).toLowerCase()] || {};
+
+            const catToUse = matchedMed.category || grnDetails.unit || 'Tablets';
+            const genToUse = matchedMed.genericName || grnDetails.genericName || '';
+
+            let autoRack = cleanRackFormat(matchedMed.rackLocation);
+            if (!isValidFormatAndLimits(autoRack)) {
+                autoRack = generateSmartRackLocation(medicines);
+            }
+
+            setFormData(prev => ({
+                ...prev,
+                name: matchedMed.name || grnDetails.medicineName || grnDetails.name || '',
+                genericName: genToUse,
+                category: catToUse,
+                dosage: matchedMed.dosage || '',
+                barcode: matchedMed.barcode || grnDetails.barcode || '',
+                rackLocation: autoRack,
+                batchNumber: matchedMed.batchNumber || grnDetails.batchNumber || '',
+                quantity: matchedMed.quantity || grnDetails.quantity || '',
+                costPrice: matchedMed.costPrice || grnDetails.costPrice || '',
+                sellingPrice: matchedMed.sellingPrice || grnDetails.sellingPrice || '',
+                expiryDate: (matchedMed.expiryDate ? matchedMed.expiryDate.split('T')[0] : null) || (grnDetails.expiryDate ? grnDetails.expiryDate.split('T')[0] : ''),
+                minStockLevel: matchedMed.minStockLevel || 10,
+                isControlled: matchedMed.isControlled || false
+            }));
+        }
+    };
+
+    const handleEdit = (med) => {
+        let formattedDate = '';
+        if (med.expiryDate) { formattedDate = med.expiryDate.split('T')[0]; }
+
+        let finalRack = cleanRackFormat(med.rackLocation);
+        if (!isValidFormatAndLimits(finalRack)) {
+            finalRack = generateSmartRackLocation(medicines);
+        }
+
+        setFormData({
+            name: med.name, genericName: med.genericName || '', category: med.category || '', dosage: med.dosage || '', barcode: med.barcode || '',
+            rackLocation: finalRack,
+            batchNumber: med.batchNumber || '', quantity: med.quantity || '', costPrice: med.costPrice || '', sellingPrice: med.sellingPrice || '', expiryDate: formattedDate,
+            minStockLevel: med.minStockLevel || 10,
+            supplierId: med.supplierId || String(medSupplierMap[med.id]) || (med.supplier ? med.supplier.id : ''), isControlled: med.isControlled || false
+        });
+        setEditingId(med.id);
+        setIsModalOpen(true);
+    };
+
+    const handleDelete = async (id) => {
+        if (window.confirm('Are you sure you want to delete this medicine?')) {
+            try {
+                await inventoryApi.delete(id);
+                toast.success('Medicine deleted! 🗑️');
+                fetchData();
+            } catch (err) { toast.error('Failed to delete medicine'); }
+        }
+    };
+
+    const executeStockAction = async (actionType) => {
+        if (!actionModal.medicine) return;
+        setSubmitting(true);
+        try {
+            await axios.post('http://localhost:5000/api/returns/adjust', {
+                medicineId: actionModal.medicine.id,
+                actionType: actionType
+            });
+
+            if (actionType === 'return') {
+                const sId = actionModal.medicine.supplierId || medSupplierMap[actionModal.medicine.id] || medSupplierMap[actionModal.medicine.name?.toLowerCase()];
+                const supplier = suppliers.find(s => String(s.id) === String(sId));
+
+                await axios.post('http://localhost:5000/api/notifications/trigger-return-emails', {
+                    medicine: actionModal.medicine,
+                    supplier: supplier || null
+                }).catch(e => {
+                    if (!axios.isCancel(e)) console.log("Return email notification failed", e);
+                });
+            }
+
+            toast.success(actionType === 'return' ? 'Stock Returned & Debit Note Sent to Supplier! 💸' : 'Stock Disposed & Loss Recorded! 🗑️');
+            setActionModal({ isOpen: false, medicine: null });
+
+            fetchData();
+        } catch (err) {
+            if (!axios.isCancel(err)) {
+                toast.error('Failed to process stock action. Please check backend connection.');
+            }
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const configuredMedsForTable = medicines.filter(m => m.rackLocation && String(m.rackLocation).trim() !== '' && Number(m.quantity) > 0);
+
+    const filteredMedicines = configuredMedsForTable.filter(m =>
+        m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (m.batchNumber && m.batchNumber.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (m.barcode && m.barcode.includes(searchQuery))
+    );
+
+    let canReturn = true;
+    let returnWindowMonths = 3;
+    let diffDays = 0;
+
+    if (actionModal.isOpen && actionModal.medicine) {
+        const sId = actionModal.medicine.supplierId || medSupplierMap[actionModal.medicine.id] || medSupplierMap[actionModal.medicine.name?.toLowerCase()];
+        const supplier = suppliers.find(s => String(s.id) === String(sId));
+
+        returnWindowMonths = supplier?.returnWindow !== undefined ? Number(supplier.returnWindow) : 3;
+
+        if (actionModal.medicine.expiryDate) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const expDate = new Date(actionModal.medicine.expiryDate);
+            expDate.setHours(0, 0, 0, 0);
+
+            diffDays = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+            canReturn = diffDays >= (returnWindowMonths * 30);
+        } else {
+            canReturn = false;
+        }
+    }
+
+    return (
+        <PharmacistLayout>
+            <style>{`
+                @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+                .animate-pulse-soft { animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+                /*  Hide Modal Scrollbar completely but keep it scrollable */
+                .hide-scrollbar::-webkit-scrollbar { display: none; }
+                .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+            `}</style>
+
+            <div className="relative font-sans z-0 min-h-[calc(100vh-6rem)] bg-slate-50/80 backdrop-blur-[24px] rounded-[32px] border border-white/60 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden p-6 mb-4">
+                <div className="absolute inset-0 z-[-3] opacity-[0.03] pointer-events-none mix-blend-multiply" style={{ backgroundImage: "url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjEuNSIgZmlsbD0iIzBmMzQ2MCIvPjwvc3ZnPg==')" }}></div>
+                <div className="absolute top-[-20%] left-[-10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-br from-sky-200/20 to-slate-300/20 blur-[120px] pointer-events-none z-[-2]"></div>
+                <div className="absolute bottom-[-20%] right-[-10%] w-[70vw] h-[70vw] rounded-full bg-gradient-to-tl from-slate-300/20 to-sky-200/20 blur-[140px] pointer-events-none z-[-2]"></div>
+
+                <div className="relative z-10 w-full h-full flex flex-col gap-6">
+
+                    <div className="flex justify-between items-center mb-2">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-2xl bg-white/40 backdrop-blur-md shadow-sm flex items-center justify-center border border-white/60">
+                                <Package size={20} strokeWidth={2.5} className="text-sky-600" />
+                            </div>
+                            <div>
+                                <h1 className="text-[26px] font-bold text-[#1e293b] tracking-tight leading-none">Pharmacy Inventory</h1>
+                                <p className="text-[13px] font-medium text-slate-500 mt-1.5">Update prices & stock locations for purchased medicines</p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => {
+                                setEditingId(null);
+                                setFormData({ name: '', genericName: '', category: '', dosage: '', barcode: '', rackLocation: '', batchNumber: '', quantity: '', costPrice: '', sellingPrice: '', expiryDate: '', minStockLevel: 10, supplierId: '', isControlled: false });
+                                setIsModalOpen(true);
+                            }}
+                            className="flex items-center gap-2 px-5 py-3 bg-sky-500/90 backdrop-blur-md text-white font-bold rounded-2xl shadow-[0_10px_25px_-5px_rgba(2,132,199,0.3)] hover:bg-sky-600 transition-all active:scale-[0.98] text-[14px] cursor-pointer border border-sky-400/50"
+                        >
+                            <Plus size={18} strokeWidth={2.5} /> Update Medicine Info
+                        </button>
+                    </div>
+
+                    <div className="bg-white/40 backdrop-blur-xl p-4 rounded-[24px] border border-white/60 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] flex items-center gap-3">
+                        <Search size={18} className="text-slate-400 ml-2" />
+                        <input
+                            type="text"
+                            placeholder="Search by medicine name, batch number, or barcode..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full outline-none text-slate-700 text-sm font-medium bg-transparent placeholder-slate-400"
+                        />
+                    </div>
+
+                    <div className="bg-white/30 backdrop-blur-2xl rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 overflow-hidden mb-6 flex flex-col">
+                        <div className="overflow-x-auto px-6 py-4">
+                            <table className="w-full text-left border-collapse table-fixed">
+                                <thead>
+                                <tr>
+                                    <th className="w-[18%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight pr-4">Medicine Name</th>
+                                    <th className="w-[15%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight pr-4">Category</th>
+                                    <th className="w-[14%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Batch #</th>
+                                    <th className="w-[10%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Stock<br/>Qty</th>
+                                    <th className="w-[12%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Unit Price<br/>(LKR)</th>
+                                    <th className="w-[12%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Expiry<br/>Date</th>
+                                    <th className="w-[8%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight text-center">Alerts</th>
+                                    <th className="w-[11%] pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight text-right pr-4">Actions</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                {loading ? (
+                                    <tr><td colSpan="8" className="text-center py-16 text-slate-500 font-medium text-sm">Loading from database...</td></tr>
+                                ) : filteredMedicines.length === 0 ? (
+                                    <tr><td colSpan="8" className="text-center py-16 text-slate-500 font-medium text-sm">No medicines found in database.</td></tr>
+                                ) : (
+                                    filteredMedicines.map((med) => {
+
+                                        const today = new Date();
+                                        today.setHours(0,0,0,0);
+                                        const expDate = new Date(med.expiryDate);
+                                        expDate.setHours(0,0,0,0);
+                                        const diffTime = expDate.getTime() - today.getTime();
+                                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                                        let alertUI = <span className="text-[11px] font-medium text-slate-400">-</span>;
+
+                                        if (diffDays <= 180) {
+                                            let colorConfig = { bg: '', iconBg: '', iconText: '', text: '' };
+                                            let daysText = `${diffDays} Days`;
+
+                                            if (diffDays <= 0) {
+                                                colorConfig = { bg: 'bg-rose-50/50', iconBg: 'bg-rose-100', iconText: 'text-rose-600', text: 'text-rose-600' };
+                                                daysText = 'Expired';
+                                            } else if (diffDays <= 60) {
+                                                colorConfig = { bg: 'bg-rose-50/50', iconBg: 'bg-rose-100', iconText: 'text-rose-500', text: 'text-rose-500' };
+                                            } else if (diffDays <= 90) {
+                                                colorConfig = { bg: 'bg-orange-50/50', iconBg: 'bg-orange-100', iconText: 'text-orange-500', text: 'text-orange-500' };
+                                            } else if (diffDays <= 180) {
+                                                colorConfig = { bg: 'bg-amber-50/50', iconBg: 'bg-amber-100', iconText: 'text-amber-500', text: 'text-amber-500' };
+                                            }
+
+                                            alertUI = (
+                                                <div className="flex flex-col items-center justify-center group" title={diffDays <= 0 ? 'Expired' : `Expires in ${diffDays} days`}>
+                                                    <div className={`p-1.5 rounded-[10px] ${colorConfig.iconBg} ${colorConfig.iconText} ${diffDays <= 60 && diffDays > 0 ? 'animate-pulse-soft' : ''}`}>
+                                                        <AlertTriangle size={16} strokeWidth={2.5} />
+                                                    </div>
+                                                    <span className={`text-[10px] font-bold ${colorConfig.text} mt-1 whitespace-nowrap`}>
+                                                        {daysText}
+                                                    </span>
+                                                </div>
+                                            );
+                                        }
+
+                                        return (
+                                            <tr key={med.id} className={`group transition-colors border-b border-white/20 last:border-0 ${med.isControlled ? 'bg-rose-100/30 backdrop-blur-sm' : 'hover:bg-white/20'}`}>
+                                                <td className="py-4 align-top pt-5 pr-4">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <p className={`font-bold text-[14px] leading-tight ${med.isControlled ? 'text-rose-700 font-black' : 'text-[#1e293b]'}`}>
+                                                            {med.name} {med.dosage && <span className="text-[11px] font-semibold text-slate-400 whitespace-nowrap">({med.dosage})</span>}
+                                                        </p>
+                                                        {med.isControlled && (
+                                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-rose-100/80 text-rose-700 rounded-md text-[9px] font-bold border border-rose-200/50 backdrop-blur-sm whitespace-nowrap" title="NMRA Controlled Drug"><ShieldAlert size={10} /></span>
+                                                        )}
+                                                    </div>
+                                                    <p className={`text-[12px] mt-1 flex flex-wrap gap-y-1 ${med.isControlled ? 'text-rose-500 font-medium' : 'text-slate-500 font-medium'}`}>
+                                                        <span className="mr-2 truncate max-w-[120px] inline-block align-bottom" title={med.genericName || med.supplier?.companyName || 'N/A'}>
+                                                            {med.genericName || med.supplier?.companyName || 'N/A'}
+                                                        </span>
+                                                        {med.rackLocation && <span className="inline-flex items-center gap-0.5 text-sky-600 font-semibold whitespace-nowrap"><MapPin size={10}/> {med.rackLocation}</span>}
+                                                    </p>
+                                                </td>
+                                                <td className="py-4 align-top pt-5 pr-4">
+                                                    <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${med.isControlled ? 'bg-rose-100/80 text-rose-700 border border-rose-200/50 backdrop-blur-sm' : 'bg-white/50 text-sky-600 border border-white/60 shadow-sm backdrop-blur-sm truncate block max-w-max'}`} title={med.category}>{med.category}</span>
+                                                </td>
+                                                <td className={`py-4 align-top pt-5 text-[13px] font-mono font-bold ${med.isControlled ? 'text-rose-700' : 'text-slate-700'}`}>{med.batchNumber}</td>
+                                                <td className="py-4 align-top pt-5 text-[13px] font-bold">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className={med.quantity <= Number(med.minStockLevel) ? 'text-rose-600 font-black' : med.isControlled ? 'text-rose-700 font-black' : 'text-slate-700'}>
+                                                            {med.quantity}
+                                                        </span>
+                                                        {med.quantity <= Number(med.minStockLevel) && (
+                                                            <AlertTriangle size={14} strokeWidth={3} className="text-rose-500 animate-pulse-soft" title="Low Stock!" />
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className={`py-4 align-top pt-5 text-[14px] font-bold ${med.isControlled ? 'text-rose-700' : 'text-[#1e293b]'}`}>LKR {Number(med.sellingPrice).toFixed(2)}</td>
+                                                <td className={`py-4 align-top pt-5 text-[13px] font-medium ${med.isControlled ? 'text-rose-600 font-bold' : 'text-slate-600'}`}>{new Date(med.expiryDate).toLocaleDateString()}</td>
+                                                <td className="py-4 align-top pt-4 text-center">
+                                                    {alertUI}
+                                                </td>
+
+                                                <td className="py-4 align-top pt-4 pr-4 text-right">
+                                                    <div className="flex items-center justify-end gap-1.5 flex-nowrap">
+                                                        <button onClick={() => setActionModal({ isOpen: true, medicine: med })} className="p-1.5 text-slate-500 hover:text-indigo-700 hover:bg-indigo-100/50 rounded-lg transition-colors cursor-pointer" title="Return or Dispose Stock">
+                                                            <Archive size={16} />
+                                                        </button>
+                                                        <button onClick={() => handleEdit(med)} className="p-1.5 text-slate-500 hover:text-sky-700 hover:bg-sky-100/50 rounded-lg transition-colors cursor-pointer" title="Edit Medicine">
+                                                            <Edit size={16} />
+                                                        </button>
+                                                        <button onClick={() => handleDelete(med.id)} className="p-1.5 text-slate-500 hover:text-rose-700 hover:bg-rose-100/50 rounded-lg transition-colors cursor-pointer" title="Delete Medicine">
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {actionModal.isOpen && actionModal.medicine && createPortal(
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
+                    <div className="bg-white/95 backdrop-blur-2xl p-6 md:p-8 rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[600px] flex flex-col relative animate-in fade-in zoom-in duration-200">
+
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <h2 className="text-[22px] font-bold text-slate-800 flex items-center gap-2.5">
+                                    <Archive className="text-rose-500" /> Stock Adjustment
+                                </h2>
+                                <p className="text-[12px] font-medium text-slate-500 mt-1">Select an action for the expired or damaged stock.</p>
+                            </div>
+                            <button onClick={() => setActionModal({ isOpen: false, medicine: null })} className="hover:bg-slate-100 p-2 rounded-full transition-colors cursor-pointer text-slate-400">
+                                <X className="w-6 h-6" />
+                            </button>
+                        </div>
+
+                        <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl mb-6">
+                            <p className="text-[15px] font-bold text-slate-800 mb-1">{actionModal.medicine.name} <span className="text-[12px] text-slate-500">({actionModal.medicine.category})</span></p>
+                            <div className="flex justify-between items-center text-[12px] text-slate-600 mt-3 border-t border-slate-200 pt-3">
+                                <div className="flex flex-col gap-0.5">
+                                    <span className="text-[10px] uppercase font-bold text-slate-400">Batch Number</span>
+                                    <span className="font-bold text-slate-700">{actionModal.medicine.batchNumber}</span>
+                                </div>
+                                <div className="flex flex-col gap-0.5 text-center">
+                                    <span className="text-[10px] uppercase font-bold text-slate-400">Stock Qty</span>
+                                    <span className="font-black text-rose-600 text-[14px]">{actionModal.medicine.quantity}</span>
+                                </div>
+                                <div className="flex flex-col gap-0.5 text-right">
+                                    <span className="text-[10px] uppercase font-bold text-slate-400">Total Value</span>
+                                    <span className="font-bold text-slate-800">LKR {(Number(actionModal.medicine.quantity) * Number(actionModal.medicine.costPrice)).toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col gap-4">
+                            {canReturn ? (
+                                <button
+                                    onClick={() => executeStockAction('return')}
+                                    disabled={submitting}
+                                    className="w-full flex items-start gap-4 p-5 rounded-2xl border-2 transition-all text-left group border-indigo-100 bg-indigo-50/50 hover:bg-indigo-50 hover:border-indigo-300 cursor-pointer"
+                                >
+                                    <div className="p-3 rounded-xl flex-shrink-0 transition-transform bg-indigo-100 text-indigo-600 group-hover:scale-110">
+                                        <RefreshCw size={24} />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[15px] font-bold text-indigo-800">
+                                            Return to Supplier (Debit Note)
+                                        </h4>
+                                        <p className="text-[12px] font-medium mt-1 leading-relaxed text-indigo-600/80">
+                                            Removes stock and auto-generates a Debit Note. The value <span className="font-bold">(LKR {(Number(actionModal.medicine.quantity) * Number(actionModal.medicine.costPrice)).toLocaleString(undefined, {minimumFractionDigits: 2})})</span> will be deducted from the supplier's outstanding balance.
+                                        </p>
+                                    </div>
+                                </button>
+                            ) : (
+                                <div className="w-full flex items-start gap-4 p-4 rounded-2xl border-2 border-slate-100 bg-slate-50/50 text-left">
+                                    <div className="p-2.5 bg-slate-200 text-slate-500 rounded-xl shrink-0">
+                                        <AlertTriangle size={20} />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[14px] font-bold text-slate-700">Return Window Expired</h4>
+                                        <p className="text-[11px] font-medium text-slate-500 mt-1 leading-relaxed">
+                                            Supplier requires minimum <span className="font-bold">{returnWindowMonths} months ({returnWindowMonths * 30} days)</span> to accept returns. Only <span className="font-bold text-rose-500">{diffDays} days</span> left. This stock cannot be returned and must be disposed.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            <button onClick={() => executeStockAction('dispose')} disabled={submitting} className="w-full flex items-start gap-4 p-5 rounded-2xl border-2 border-rose-100 bg-rose-50/50 hover:bg-rose-50 hover:border-rose-300 transition-all cursor-pointer text-left group disabled:opacity-50">
+                                <div className="p-3 bg-rose-100 text-rose-600 rounded-xl group-hover:scale-110 transition-transform flex-shrink-0">
+                                    <Trash2 size={24} />
+                                </div>
+                                <div>
+                                    <h4 className="text-[15px] font-bold text-rose-800">Dispose / Write-off</h4>
+                                    <p className="text-[12px] font-medium text-rose-600/80 mt-1 leading-relaxed">
+                                        Removes stock permanently and records the total value <span className="font-bold">(LKR {(Number(actionModal.medicine.quantity) * Number(actionModal.medicine.costPrice)).toLocaleString(undefined, {minimumFractionDigits: 2})})</span> as a business loss/expense.
+                                    </p>
+                                </div>
+                            </button>
+                        </div>
+
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {isModalOpen && createPortal(
+                <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-[9990] p-4">
+                    <div className="bg-white/80 backdrop-blur-2xl p-8 rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-[700px] max-h-[90vh] overflow-y-auto hide-scrollbar">
+
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-[20px] font-bold text-slate-800 flex items-center gap-2.5">
+                                <Package className="text-sky-600" /> Update Inventory Record
+                            </h2>
+                            <button onClick={() => { setIsModalOpen(false); setEditingId(null); }} className="hover:bg-white/50 p-2 rounded-full transition-colors border border-transparent hover:border-white/60 cursor-pointer">
+                                <X className="w-5 h-5 text-slate-500" />
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleSubmit} className="space-y-6">
+
+                            <div className="space-y-4">
+                                <h3 className="text-[12px] font-extrabold text-sky-600 uppercase tracking-widest border-b border-white pb-2 flex items-center gap-1.5"><Pill size={14}/> Medicine Information</h3>
+
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                                        <Truck size={14} className="text-sky-500"/> Select Supplier *
+                                    </label>
+                                    <select
+                                        required
+                                        className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm cursor-pointer"
+                                        value={formData.supplierId}
+                                        onChange={handleSupplierChange}
+                                    >
+                                        <option value="">-- Choose Supplier Company --</option>
+                                        {suppliers.filter(s => s.status === 'Active').map(s => (
+                                            <option key={s.id} value={s.id}>{s.companyName} {s.repName ? `(Rep: ${s.repName})` : ''} {s.brNumber ? `- NMRA: ${s.brNumber}` : ''}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Medicine (Brand Name) *</label>
+                                        <select
+                                            required
+                                            className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm cursor-pointer disabled:opacity-50"
+                                            value={editingId || ''}
+                                            onChange={handleMedicineSelect}
+                                            disabled={!formData.supplierId}
+                                        >
+                                            <option value="">{formData.supplierId ? "-- Select Received Medicine --" : "Select Supplier first"}</option>
+
+                                            {medicines.filter(m => {
+                                                const sId = String(formData.supplierId);
+                                                const mId = String(m.id);
+                                                const mName = String(m.name).toLowerCase();
+
+                                                const belongsToSupplier = String(m.supplierId) === sId ||
+                                                    String(m.SupplierId) === sId ||
+                                                    String(m.supplier_id) === sId ||
+                                                    String(m.supplier?.id) === sId ||
+                                                    String(medSupplierMap[mId]) === sId ||
+                                                    String(medSupplierMap[mName]) === sId;
+
+                                                if (!belongsToSupplier) return false;
+
+                                                const isAlreadyConfigured = m.rackLocation && String(m.rackLocation).trim() !== '';
+
+                                                if (isAlreadyConfigured && String(m.id) !== String(editingId)) {
+                                                    return false;
+                                                }
+
+                                                return true;
+                                            }).map(m => (
+                                                <option key={m.id} value={m.id}>{m.name} {m.dosage ? `(${m.dosage})` : ''}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Generic Name (Locked)</label>
+                                        <input type="text" readOnly className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-2xl text-[14px] font-bold text-slate-500 cursor-not-allowed outline-none shadow-sm backdrop-blur-sm"
+                                               value={formData.genericName} placeholder="Auto Fill" />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Category (Locked)</label>
+                                        <input type="text" readOnly className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-2xl text-[14px] font-bold text-slate-500 cursor-not-allowed outline-none shadow-sm backdrop-blur-sm"
+                                               value={formData.category} placeholder="Auto Fill" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Dosage / Strength *</label>
+                                        <input type="text" required list="dosage-units-list" placeholder="e.g. 500mg" className="w-full px-4 py-3 bg-white border border-sky-200 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm"
+                                               value={formData.dosage} onChange={e => setFormData({...formData, dosage: e.target.value})} />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><ScanBarcode size={12}/> Barcode / Item Code (Locked)</label>
+                                        <input type="text" readOnly className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-2xl text-[14px] font-bold text-slate-500 cursor-not-allowed outline-none shadow-sm backdrop-blur-sm"
+                                               value={formData.barcode} placeholder="Auto Fill" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><MapPin size={12}/> Rack / Shelf Location *</label>
+                                        <input type="text" required placeholder="e.g. R01-S01-B01"
+                                               className={`w-full px-4 py-3 bg-white border ${rackError ? 'border-rose-400 ring-1 ring-rose-400 focus:ring-rose-500' : 'border-sky-200 focus:ring-2 focus:ring-sky-500/40'} rounded-2xl text-[14px] font-bold text-slate-800 outline-none shadow-sm uppercase transition-all`}
+                                               value={formData.rackLocation} onChange={e => setFormData({...formData, rackLocation: e.target.value.toUpperCase()})} />
+
+                                        {rackError ? (
+                                            <p className="text-[10.5px] text-rose-500 font-bold mt-1.5 ml-1 leading-tight flex items-start gap-1">
+                                                <ShieldAlert size={12} className="shrink-0 mt-[1px]" /> <span>{rackError}</span>
+                                            </p>
+                                        ) : binSpanInfo ? (
+                                            <div className="mt-2 bg-sky-50/80 p-2.5 rounded-xl border border-sky-100 shadow-sm backdrop-blur-sm">
+                                                <p className="text-[10px] text-sky-700 font-bold flex items-center gap-1 border-b border-sky-200/50 pb-1.5 mb-1.5"><Package size={12}/> Bin Allocation Map:</p>
+                                                <p className="text-[10px] text-slate-600 font-medium ml-4">Starts at: <span className="font-bold text-slate-800">{formData.rackLocation}</span></p>
+                                                {binSpanInfo.span > 1 && <p className="text-[10px] text-rose-600 mt-1 font-bold ml-4">Ends at: {binSpanInfo.endLoc} <br/><span className="text-slate-500 font-medium ml-2">- {binSpanInfo.text}</span></p>}
+                                                {binSpanInfo.span === 1 && <p className="text-[10px] text-emerald-600 mt-1 font-bold ml-4">{binSpanInfo.text} (Max: 100/Bin)</p>}
+                                            </div>
+                                        ) : (
+                                            <p className="text-[9px] text-sky-600 font-bold mt-1 ml-1 leading-tight">
+                                                Limits: 20 Racks | 10 Shelves (පේළි) | 10 Bins (ඉඩ)
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="space-y-4 pt-2">
+                                <h3 className="text-[12px] font-extrabold text-sky-600 uppercase tracking-widest border-b border-white pb-2">Stock & Pricing Information</h3>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Batch Number (Locked)</label>
+                                        <input type="text" readOnly className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-2xl text-[14px] font-bold text-slate-500 cursor-not-allowed outline-none shadow-sm backdrop-blur-sm"
+                                               value={formData.batchNumber} placeholder="Auto Fill from GRN" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Expiry Date (Locked)</label>
+                                        <input type="date" readOnly className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-2xl text-[14px] font-bold text-slate-500 cursor-not-allowed outline-none shadow-sm backdrop-blur-sm pointer-events-none"
+                                               value={formData.expiryDate} />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Stock Qty (Locked)</label>
+                                        <input type="number" readOnly className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-2xl text-[14px] font-bold text-slate-500 cursor-not-allowed outline-none shadow-sm backdrop-blur-sm"
+                                               value={formData.quantity} placeholder="0" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Cost (LKR) (Locked)</label>
+                                        <input type="number" readOnly className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-2xl text-[14px] font-bold text-slate-500 cursor-not-allowed outline-none shadow-sm backdrop-blur-sm"
+                                               value={formData.costPrice} placeholder="0.00" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-black text-sky-600 uppercase tracking-wider mb-1.5">Selling Price (LKR) *</label>
+                                        <input type="number" required min="0" step="0.01" placeholder="15.00" className="w-full px-4 py-3 bg-white border border-sky-300 rounded-2xl text-[14px] font-black text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/50 shadow-sm"
+                                               value={formData.sellingPrice} onChange={e => setFormData({...formData, sellingPrice: e.target.value})} />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 text-rose-500">Min Stock Level (Alert) *</label>
+                                    <input type="number" required min="0.01" step="0.01" placeholder="e.g. 10 or 0.5" className="w-full px-4 py-3 bg-white border border-rose-200 rounded-2xl text-[14px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-rose-500/40 shadow-sm"
+                                           value={formData.minStockLevel} onChange={e => setFormData({...formData, minStockLevel: e.target.value})} />
+                                    <p className="text-[10px] text-slate-500 mt-1 ml-1 font-medium">Notification triggered if stock drops below this value.</p>
+                                </div>
+                            </div>
+
+                            <div className="p-4 bg-rose-50/50 backdrop-blur-sm border border-rose-200/50 rounded-2xl flex items-center justify-between mt-2">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-white/60 text-rose-600 rounded-xl border border-rose-100 shadow-sm">
+                                        <ShieldAlert size={18} />
+                                    </div>
+                                    <div>
+                                        <p className="text-[13px] font-bold text-slate-800">NMRA Controlled Substance</p>
+                                        <p className="text-[11px] text-slate-500 font-medium">Enable if this medicine requires strict regulatory audit logging.</p>
+                                    </div>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        className="sr-only peer"
+                                        checked={formData.isControlled}
+                                        onChange={e => setFormData({...formData, isControlled: e.target.checked})}
+                                    />
+                                    <div className="w-11 h-6 bg-slate-200/80 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-500 shadow-inner"></div>
+                                </label>
+                            </div>
+
+                            <div className="flex gap-4 pt-4 mt-2">
+                                <button type="button" onClick={() => { setIsModalOpen(false); setEditingId(null); }} className="w-1/2 bg-white/50 backdrop-blur-md text-slate-600 font-bold py-3.5 rounded-2xl border border-white/80 hover:bg-white/80 hover:text-slate-800 transition-all cursor-pointer shadow-sm">
+                                    Cancel
+                                </button>
+                                <button type="submit" disabled={submitting || !editingId || !!rackError} className="w-full mt-4 bg-sky-500/90 backdrop-blur-md text-white font-bold py-3.5 rounded-2xl shadow-[0_10px_25px_-5px_rgba(2,132,199,0.3)] hover:bg-sky-600 transition-all active:scale-[0.98] text-[15px] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer border border-sky-400/50">
+                                    {submitting ? 'Saving...' : 'Update Inventory Info'}
+                                </button>
+                            </div>
+                        </form>
+
+                        <datalist id="dosage-units-list">
+                            {dosageSuggestions.map((suggestion, idx) => (
+                                <option key={idx} value={suggestion} />
+                            ))}
+                        </datalist>
+
+                    </div>
+                </div>,
+                document.body
+            )}
+        </PharmacistLayout>
+    );
+}
