@@ -1,16 +1,17 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { inventoryApi } from '../../api/inventoryApi';
 import { salesApi } from '../../api/salesApi';
 import ReceiptModal from './ReceiptModal';
 import {
     ShoppingCart, Search, Plus, Minus, Trash2, CheckCircle, Package, History, FileText,
-    Eye, Edit, Ban, X, User, CreditCard, Stethoscope, MessageSquare, FileCheck, TrendingUp, MoreHorizontal
+    Eye, Edit, Ban, X, User, CreditCard, Stethoscope, MessageSquare, FileCheck, TrendingUp, MoreHorizontal, Star, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import axios from '../../api/axiosInstance';
 import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
+import io from 'socket.io-client';
+import axios from '../../api/axiosInstance';
 
 export default function POSPage() {
     const [medicines, setMedicines] = useState([]);
@@ -31,12 +32,21 @@ export default function POSPage() {
     const [editForm, setEditForm] = useState({ customerName: '', paymentMethod: '', doctorName: '', remarks: '' });
     const [updating, setUpdating] = useState(false);
 
+    const [crmCustomers, setCrmCustomers] = useState([]);
+    const [currentLoyaltyPoints, setCurrentLoyaltyPoints] = useState(0);
+
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
+    const salesRequestVersion = useRef(0);
+    const salesRequestsInFlight = useRef(0);
+    const salesPageMounted = useRef(false);
+
     useEffect(() => {
         const controller = new AbortController();
 
         fetchInventory(controller);
-        fetchSalesHistory(controller);
         fetchPendingPrescriptions(controller);
+        fetchCRMCustomers(controller);
 
         return () => {
             controller.abort();
@@ -52,27 +62,68 @@ export default function POSPage() {
         }
     };
 
-    const fetchSalesHistory = async () => {
-        setLoadingHistory(true);
+    const fetchSalesHistory = useCallback(async (silent = false) => {
+        if (!salesPageMounted.current || (silent && salesRequestsInFlight.current > 0)) return;
+
+        const version = ++salesRequestVersion.current;
+        salesRequestsInFlight.current += 1;
+        if (!silent) setLoadingHistory(true);
+
         try {
             const res = await salesApi.list({ page: 0, size: 50 });
-            if (Array.isArray(res.data)) {
-                setRecentSales(res.data);
-            } else {
-                setRecentSales(res.data?.content || []);
+            if (salesPageMounted.current && version === salesRequestVersion.current) {
+                if (Array.isArray(res.data)) {
+                    setRecentSales(res.data);
+                } else {
+                    setRecentSales(res.data?.content || []);
+                }
             }
         } catch (err) {
-            console.error('Failed to load sales history', err);
+            if (salesPageMounted.current && version === salesRequestVersion.current && !silent) {
+                console.error('Failed to load sales history', err);
+            }
         } finally {
-            setLoadingHistory(false);
+            salesRequestsInFlight.current -= 1;
+            if (salesPageMounted.current && version === salesRequestVersion.current && !silent) {
+                setLoadingHistory(false);
+            }
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        salesPageMounted.current = true;
+        fetchSalesHistory();
+
+        const refreshSales = () => {
+            if (!document.hidden) fetchSalesHistory(true);
+        };
+        const handleSaleStorage = (event) => {
+            if (event.key === 'pos_new_sale') refreshSales();
+        };
+        const socket = io('http://localhost:5000');
+        socket.on('receive_notification', refreshSales);
+        socket.on('connect', refreshSales);
+        window.addEventListener('storage', handleSaleStorage);
+        window.addEventListener('focus', refreshSales);
+        document.addEventListener('visibilitychange', refreshSales);
+        const timer = window.setInterval(refreshSales, 5000);
+
+        return () => {
+            salesPageMounted.current = false;
+            salesRequestVersion.current += 1;
+            window.clearInterval(timer);
+            window.removeEventListener('storage', handleSaleStorage);
+            window.removeEventListener('focus', refreshSales);
+            document.removeEventListener('visibilitychange', refreshSales);
+            socket.off('receive_notification', refreshSales);
+            socket.off('connect', refreshSales);
+            socket.disconnect();
+        };
+    }, [fetchSalesHistory]);
 
     const fetchPendingPrescriptions = async (controller = null) => {
         try {
-            const config = {
-                ...(controller ? { signal: controller.signal } : {})
-            };
+            const config = { ...(controller ? { signal: controller.signal } : {}) };
             const res = await axios.get('http://localhost:5000/api/prescriptions', config);
             const pending = (res.data || []).filter(rx => rx.status === 'Pending');
             setPendingPrescriptions(pending);
@@ -83,28 +134,77 @@ export default function POSPage() {
         }
     };
 
+    const fetchCRMCustomers = async (controller = null) => {
+        try {
+            const config = { ...(controller ? { signal: controller.signal } : {}) };
+            const res = await axios.get('http://localhost:5000/api/crm/customers', config);
+            setCrmCustomers(res.data || []);
+        } catch (err) {
+            if (!axios.isCancel(err)) {
+                console.error('Failed to load CRM customers', err);
+            }
+        }
+    };
+
     const handlePrescriptionSelect = (e) => {
         const rxId = e.target.value;
         setSelectedPrescriptionId(rxId);
 
         if (!rxId) {
+            setCustomerName('');
+            setDoctorName('');
+            setCurrentLoyaltyPoints(0);
+            setCart([]);
             return;
         }
 
         const rx = pendingPrescriptions.find(p => String(p.id) === String(rxId));
         if (!rx) return;
 
-        setCustomerName(rx.patientName || rx.patient?.name || '');
-        setDoctorName(rx.doctorName || rx.doctor?.name || '');
+        const pName = rx.patientName || rx.patient?.name || '';
+        const dName = rx.doctorName || rx.doctor?.name || '';
+
+        setCustomerName(pName);
+        setDoctorName(dName);
+
+        const matchedCustomer = crmCustomers.find(c =>
+            (c.name && c.name.toLowerCase() === pName.toLowerCase()) ||
+            (c.nic && rx.patient?.nic && c.nic.toLowerCase() === rx.patient.nic.toLowerCase())
+        );
+        setCurrentLoyaltyPoints(matchedCustomer ? (matchedCustomer.loyaltyPoints || 0) : 0);
 
         const rxItems = rx.prescribedMedicines || rx.items || [];
 
         if (rxItems && rxItems.length > 0) {
-            let updatedCart = [...cart];
+            let updatedCart = [];
             let addedCount = 0;
+            let unmappedCount = 0;
 
             rxItems.forEach(item => {
-                const med = medicines.find(m => String(m.id) === String(item.medicineId));
+                let med = null;
+
+                // 1. Try finding exact ID
+                if (item.medicineId && String(item.medicineId) !== 'null') {
+                    med = medicines.find(m => String(m.id) === String(item.medicineId));
+                }
+
+                // 2. Try Flexible Name Matching
+                if (!med && item.medicineName) {
+                    const aiMedWords = item.medicineName.toLowerCase().trim().split(/\s+/);
+                    const firstWord = aiMedWords[0] || '';
+                    const secondWord = aiMedWords[1] || '';
+
+                    med = medicines.find(m => {
+                        if (!m.name) return false;
+                        const invMedName = m.name.toLowerCase().trim();
+
+                        const matchFirst = firstWord.length > 2 && invMedName.includes(firstWord);
+                        const matchSecond = secondWord.length > 2 && invMedName.includes(secondWord);
+
+                        return matchFirst || matchSecond;
+                    });
+                }
+
                 if (med) {
                     addedCount++;
                     const existingItem = updatedCart.find(c => String(c.medicineId) === String(med.id));
@@ -120,21 +220,38 @@ export default function POSPage() {
                             quantity: Number(item.quantity || 1),
                             maxStock: med.quantity,
                             isControlled: Boolean(med.isControlled || med.is_controlled),
-                            isRx: true
+                            isRx: true,
+                            isUnmapped: false
                         });
                     }
+                } else {
+                    unmappedCount++;
+                    updatedCart.push({
+                        medicineId: `unmapped-${Math.random()}`,
+                        name: item.medicineName || 'Unknown AI Item',
+                        batchNumber: 'N/A',
+                        sellingPrice: 0,
+                        quantity: Number(item.quantity || 1),
+                        maxStock: 0,
+                        isControlled: false,
+                        isRx: true,
+                        isUnmapped: true
+                    });
                 }
             });
 
             setCart(updatedCart);
 
-            if (addedCount > 0) {
-                toast.success(`Loaded prescription RX-${String(rx.id).padStart(4, '0')} successfully!`);
-            } else {
-                toast.error('Medicines in this prescription are out of stock or not found in inventory.');
+            if (addedCount > 0 && unmappedCount === 0) {
+                toast.success(`Loaded prescription successfully!`);
+            } else if (addedCount > 0 && unmappedCount > 0) {
+                toast.success(`Loaded with warnings. Some items were not found in inventory!`);
+            } else if (addedCount === 0 && unmappedCount > 0) {
+                toast.error(`Prescription loaded, but NONE of the medicines exist in your inventory!`);
             }
         } else {
-            toast.error('Selected prescription has no medicines attached.');
+            setCart([]);
+            toast.error('Selected prescription has no medicines attached in the database.');
         }
     };
 
@@ -162,7 +279,8 @@ export default function POSPage() {
                 quantity: 1,
                 maxStock: med.quantity,
                 isControlled: Boolean(med.isControlled || med.is_controlled),
-                isRx: false
+                isRx: false,
+                isUnmapped: false
             }]);
         }
         toast.success(`${med.name} added to cart`);
@@ -172,7 +290,7 @@ export default function POSPage() {
         setCart(cart.map(item => {
             if (item.medicineId === medicineId) {
                 const newQty = item.quantity + delta;
-                if (newQty > item.maxStock) {
+                if (!item.isUnmapped && newQty > item.maxStock) {
                     toast.error('Exceeds available stock');
                     return item;
                 }
@@ -187,6 +305,8 @@ export default function POSPage() {
     };
 
     const totalAmount = cart.reduce((sum, item) => sum + (item.sellingPrice * item.quantity), 0);
+    const appliedDiscount = Math.min(totalAmount, currentLoyaltyPoints);
+    const finalAmount = totalAmount - appliedDiscount;
 
     const handleCheckout = async () => {
         if (cart.length === 0) {
@@ -194,10 +314,15 @@ export default function POSPage() {
             return;
         }
 
+        if (cart.some(item => item.isUnmapped)) {
+            toast.error('Cannot checkout! Please remove "NOT IN INVENTORY" items from the cart and add correct inventory items manually.');
+            return;
+        }
+
         const hasControlledItem = cart.some(item => Boolean(item.isControlled));
 
         if (hasControlledItem && (!selectedPrescriptionId || !customerName || !doctorName)) {
-            window.alert("🚨 STOP! NMRA REGULATORY WARNING:\n\nREQUIRED VALID PRESCRIPTION!\n\nYou have a 'Controlled Drug' in the cart. You must provide:\n1. Pending Prescription\n2. Customer Name\n3. Doctor Name");
+            window.alert("🚨 STOP! NMRA REGULATORY WARNING:\n\nREQUIRED VALID PRESCRIPTION!\n\nYou have a 'Controlled Drug' in the cart. You must provide a valid Prescription to automatically load Patient & Doctor details.");
             toast.error('Required Valid Prescription! Missing details.');
             return;
         }
@@ -207,7 +332,7 @@ export default function POSPage() {
             const payload = {
                 customerName: customerName || 'Walk-in Customer',
                 doctorName,
-                paymentMethod,
+                paymentMethod: 'Cash',
                 prescriptionId: selectedPrescriptionId || null,
                 items: cart.map(i => ({ medicineId: i.medicineId, quantity: i.quantity }))
             };
@@ -216,10 +341,13 @@ export default function POSPage() {
 
             toast.success('Bill generated & Dispensed successfully! 🎉');
 
+            localStorage.setItem('pos_new_sale', Date.now().toString());
+
             setCart([]);
             setCustomerName('');
             setDoctorName('');
             setSelectedPrescriptionId('');
+            setCurrentLoyaltyPoints(0);
 
             await fetchInventory();
             fetchSalesHistory();
@@ -233,13 +361,26 @@ export default function POSPage() {
     };
 
     const handleVoid = async (sale) => {
+        const saleDateStr = sale.saleDate || sale.createdAt;
+        if (saleDateStr) {
+            const saleDate = new Date(saleDateStr);
+            const currentDate = new Date();
+            const diffTime = currentDate.getTime() - saleDate.getTime();
+            const diffDays = diffTime / (1000 * 60 * 60 * 24);
+
+            if (diffDays > 7) {
+                window.alert("🚨 ACTION BLOCKED:\n\nTransactions older than 7 days cannot be voided or returned due to pharmacy regulations.\n\nReason: 7-Day validity time frame has been exceeded.");
+                return;
+            }
+        }
+
         const id = sale.saleId || sale.id;
         if (window.confirm(`Are you sure you want to Void Invoice #${String(id).slice(0, 8).toUpperCase()}?`)) {
             try {
                 if (salesApi.voidSale) {
                     await salesApi.voidSale(id);
                 }
-
+                localStorage.setItem('pos_new_sale', Date.now().toString());
                 toast.success('Sale voided and stock restored successfully!');
                 await fetchInventory();
                 fetchSalesHistory();
@@ -272,6 +413,7 @@ export default function POSPage() {
             if (salesApi.updateSale) {
                 await salesApi.updateSale(id, editForm);
             }
+            localStorage.setItem('pos_new_sale', Date.now().toString());
             toast.success(`Invoice ${String(id).slice(0, 8).toUpperCase()} updated successfully!`);
             setEditingSale(null);
             fetchSalesHistory();
@@ -289,15 +431,12 @@ export default function POSPage() {
 
         return medicines.filter(m => {
             if (Number(m.quantity) <= 0) return false;
-
             if (!m.rackLocation || String(m.rackLocation).trim() === '') return false;
-
             if (m.expiryDate) {
                 const expDate = new Date(m.expiryDate);
                 expDate.setHours(0, 0, 0, 0);
                 if (expDate < today) return false;
             }
-
             return true;
         });
     }, [medicines]);
@@ -365,25 +504,22 @@ export default function POSPage() {
         };
     };
 
+    const totalPages = Math.ceil(recentSales.length / itemsPerPage);
+    const currentItems = recentSales.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
     return (
         <AdminLayout>
             <div className="relative font-sans z-0 min-h-[calc(100vh-6rem)] bg-slate-50/80 backdrop-blur-[24px] rounded-[32px] border border-white/60 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden p-6 mb-4">
-
-                <div className="absolute inset-0 z-[-3] opacity-[0.03] pointer-events-none mix-blend-multiply"
-                     style={{ backgroundImage: "url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjEuNSIgZmlsbD0iIzBmMzQ2MCIvPjwvc3ZnPg==')" }}>
-                </div>
-
-                <div className="absolute top-[-20%] left-[-10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-br from-indigo-200/20 to-slate-300/20 blur-[120px] pointer-events-none z-[-2]"></div>
-                <div className="absolute bottom-[-20%] right-[-10%] w-[70vw] h-[70vw] rounded-full bg-gradient-to-tl from-slate-300/20 to-indigo-200/20 blur-[140px] pointer-events-none z-[-2]"></div>
+                <div className="absolute inset-0 z-[-3] opacity-[0.03] pointer-events-none mix-blend-multiply" style={{ backgroundImage: "url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjEuNSIgZmlsbD0iIzBmMzQ2MCIvPjwvc3ZnPg==')" }}></div>
+                <div className="absolute top-[-20%] left-[-10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-br from-blue-200/20 to-slate-300/20 blur-[120px] pointer-events-none z-[-2]"></div>
 
                 <div className="relative z-10 w-full h-full flex flex-col gap-6 pb-2">
-
                     <div className="flex items-center justify-between mb-4">
                         <div>
                             <h1 className="text-[26px] font-bold text-[#1e293b] tracking-tight leading-none">POS Billing</h1>
                             <p className="text-[12px] font-medium text-slate-400 mt-1.5">Point of sale, active billing cart, and checkout</p>
                         </div>
-                        <div className="p-2.5 bg-white/40 backdrop-blur-md rounded-full shadow-sm border border-slate-200 text-slate-500 hover:text-indigo-600 cursor-pointer transition-all hover:shadow-md">
+                        <div className="p-2.5 bg-white/40 backdrop-blur-md rounded-full shadow-sm border border-slate-200 text-slate-500 hover:text-sky-600 cursor-pointer transition-all hover:shadow-md">
                             <MoreHorizontal size={20} />
                         </div>
                     </div>
@@ -406,7 +542,7 @@ export default function POSPage() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[720px]">
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[780px]">
                         <div className="lg:col-span-7 flex flex-col gap-4 bg-white/30 backdrop-blur-2xl p-6 rounded-[32px] border border-white/50 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden h-full">
                             <div className="flex items-center justify-between px-2">
                                 <h2 className="text-[18px] font-bold text-slate-800">Pharmacy Catalog</h2>
@@ -477,33 +613,38 @@ export default function POSPage() {
                                     </select>
                                 </div>
 
-                                <div className="space-y-3 mb-5">
-                                    <input
-                                        type="text"
-                                        placeholder="Customer Name (Required if Controlled)"
-                                        value={customerName}
-                                        onChange={(e) => setCustomerName(e.target.value)}
-                                        className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[13px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm backdrop-blur-sm"
-                                    />
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <input
-                                            type="text"
-                                            placeholder="Doctor Name"
-                                            value={doctorName}
-                                            onChange={(e) => setDoctorName(e.target.value)}
-                                            className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[13px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm backdrop-blur-sm"
-                                        />
-                                        <select
-                                            value={paymentMethod}
-                                            onChange={(e) => setPaymentMethod(e.target.value)}
-                                            className="w-full px-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-[13px] font-bold text-slate-700 outline-none cursor-pointer shadow-sm backdrop-blur-sm focus:ring-2 focus:ring-indigo-500/40"
-                                        >
-                                            <option value="Cash">Cash</option>
-                                            <option value="Card">Card</option>
-                                            <option value="Insurance">Insurance</option>
-                                        </select>
+                                {selectedPrescriptionId ? (
+                                    <div className="mb-5 p-5 bg-white/60 border border-white/80 rounded-[24px] shadow-sm backdrop-blur-sm">
+                                        <div className="flex justify-between items-center mb-4 px-1">
+                                            <div>
+                                                <span className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Patient Name</span>
+                                                <span className="text-[14px] font-medium text-slate-700 flex items-center gap-2 not-italic">
+                                                    <User size={15} className="text-indigo-400" /> {customerName || 'N/A'}
+                                                </span>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Doctor</span>
+                                                <span className="text-[14px] font-medium text-slate-700 flex items-center justify-end gap-2 not-italic">
+                                                    <Stethoscope size={15} className="text-indigo-400" /> {doctorName || 'N/A'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center justify-between px-2 pt-4 mt-2 border-t border-slate-200/50">
+                                            <div className="flex items-center gap-2 text-slate-600">
+                                                <Star size={15} className="fill-amber-500 text-amber-500" />
+                                                <span className="text-[11px] font-bold uppercase tracking-wider">Available Loyalty Points</span>
+                                            </div>
+                                            <div className="text-[15px] font-black text-amber-600">
+                                                {currentLoyaltyPoints} <span className="text-[11px] font-bold text-amber-500">Pts</span>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
+                                ) : (
+                                    <div className="mb-5 p-6 bg-slate-50/50 border border-slate-200 border-dashed rounded-[24px] flex flex-col items-center justify-center text-slate-400">
+                                        <Package size={28} className="mb-2 opacity-40" />
+                                        <p className="text-[12px] font-medium text-center px-4">Select a prescription above to auto-load patient details and loyalty points.</p>
+                                    </div>
+                                )}
 
                                 <div className="flex-1 overflow-y-auto min-h-[150px] space-y-2 pr-1 mb-4 border-t border-b border-white/30 py-4">
                                     {cart.length === 0 ? (
@@ -513,20 +654,28 @@ export default function POSPage() {
                                         </div>
                                     ) : (
                                         cart.map(item => (
-                                            <div key={item.medicineId} className={`flex items-center justify-between p-3 rounded-xl border backdrop-blur-sm shadow-sm ${item.isControlled ? 'bg-rose-100/50 border-rose-200/50' : 'bg-white/50 border-white/60'}`}>
+                                            <div key={item.medicineId} className={`flex items-center justify-between p-3 rounded-xl border backdrop-blur-sm shadow-sm ${item.isUnmapped ? 'bg-rose-50/80 border-rose-300' : item.isControlled ? 'bg-rose-100/50 border-rose-200/50' : 'bg-white/50 border-white/60'}`}>
                                                 <div className="overflow-hidden pr-2 flex items-center gap-2">
-                                                    <p className={`font-bold text-[13px] truncate max-w-[130px] ${item.isControlled ? 'text-rose-700 font-black' : 'text-slate-800'}`}>{item.name}</p>
-                                                    {item.isRx ? (
+                                                    <p className={`font-bold text-[13px] truncate max-w-[130px] ${item.isUnmapped ? 'text-rose-600' : item.isControlled ? 'text-rose-700 font-black' : 'text-slate-800'}`}>{item.name}</p>
+                                                    {item.isUnmapped ? (
+                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 text-rose-700 uppercase tracking-wider border border-rose-200/50" title="This item was in the prescription but isn't in your inventory. Delete it and add manually.">NOT IN INVENTORY</span>
+                                                    ) : item.isRx ? (
                                                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-100 text-indigo-700 uppercase tracking-wider border border-indigo-200/50">RX</span>
                                                     ) : (
                                                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-700 uppercase tracking-wider border border-amber-200/50">OTC</span>
                                                     )}
                                                 </div>
                                                 <div className="flex items-center gap-2">
-                                                    <div className={`text-[12px] font-bold w-16 text-right mr-1 ${item.isControlled ? 'text-rose-700' : 'text-indigo-700'}`}>LKR {(item.sellingPrice * item.quantity).toFixed(2)}</div>
-                                                    <button onClick={() => updateQuantity(item.medicineId, -1)} className="p-1.5 bg-white/80 border border-white/80 rounded-lg hover:bg-white transition-colors cursor-pointer shadow-sm"><Minus size={12} /></button>
-                                                    <span className="text-[13px] font-bold w-5 text-center text-slate-800">{item.quantity}</span>
-                                                    <button onClick={() => updateQuantity(item.medicineId, 1)} className="p-1.5 bg-white/80 border border-white/80 rounded-lg hover:bg-white transition-colors cursor-pointer shadow-sm"><Plus size={12} /></button>
+                                                    {!item.isUnmapped && (
+                                                        <div className={`text-[12px] font-bold w-16 text-right mr-1 ${item.isControlled ? 'text-rose-700' : 'text-indigo-700'}`}>LKR {(item.sellingPrice * item.quantity).toFixed(2)}</div>
+                                                    )}
+                                                    {!item.isUnmapped && (
+                                                        <button onClick={() => updateQuantity(item.medicineId, -1)} className="p-1.5 bg-white/80 border border-white/80 rounded-lg hover:bg-white transition-colors cursor-pointer shadow-sm"><Minus size={12} /></button>
+                                                    )}
+                                                    <span className={`text-[13px] font-bold w-5 text-center ${item.isUnmapped ? 'text-rose-500' : 'text-slate-800'}`}>{item.quantity}</span>
+                                                    {!item.isUnmapped && (
+                                                        <button onClick={() => updateQuantity(item.medicineId, 1)} className="p-1.5 bg-white/80 border border-white/80 rounded-lg hover:bg-white transition-colors cursor-pointer shadow-sm"><Plus size={12} /></button>
+                                                    )}
                                                     <button onClick={() => removeFromCart(item.medicineId)} className="text-rose-500 hover:text-rose-700 ml-1 p-1 cursor-pointer"><Trash2 size={16} /></button>
                                                 </div>
                                             </div>
@@ -536,17 +685,29 @@ export default function POSPage() {
                             </div>
 
                             <div className="border-t border-white/30 pt-4 relative z-20 shrink-0">
-                                <div className="flex justify-between items-center mb-5 px-1">
+                                {currentLoyaltyPoints > 0 ? (
+                                    <>
+                                        <div className="flex justify-between items-center mb-1.5 px-1">
+                                            <span className="text-[13px] font-bold text-slate-500">Subtotal:</span>
+                                            <span className="text-[14px] font-bold text-slate-600">LKR {totalAmount.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center mb-3 px-1 text-amber-600">
+                                            <span className="text-[13px] font-bold flex items-center gap-1.5"><Star size={12} className="fill-amber-500"/> Loyalty Discount:</span>
+                                            <span className="text-[14px] font-bold">LKR {appliedDiscount.toFixed(2)}</span>
+                                        </div>
+                                    </>
+                                ) : null}
+                                <div className="flex justify-between items-center mb-3 px-1">
                                     <span className="text-[15px] font-bold text-slate-600">Total Amount:</span>
-                                    <span className="text-[26px] font-black text-slate-800">LKR {totalAmount.toFixed(2)}</span>
+                                    <span className="text-[26px] font-black text-slate-800">LKR {finalAmount.toFixed(2)}</span>
                                 </div>
                                 <button
                                     onClick={handleCheckout}
-                                    disabled={loading || cart.length === 0}
-                                    className="w-full bg-indigo-500/90 backdrop-blur-md text-white font-bold py-4 rounded-2xl shadow-[0_10px_25px_-5px_rgba(99,102,241,0.4)] hover:bg-indigo-600 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-[15px] relative z-50 border border-indigo-400/50"
+                                    disabled={loading || cart.length === 0 || cart.some(i => i.isUnmapped)}
+                                    className="w-full bg-indigo-500/90 backdrop-blur-md text-white font-bold py-3.5 rounded-2xl shadow-[0_10px_25px_-5px_rgba(99,102,241,0.4)] hover:bg-indigo-600 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-[15px] relative z-50 border border-indigo-400/50"
                                 >
                                     <CheckCircle size={18} className={loading ? "animate-spin" : ""} />
-                                    {loading ? 'Processing Bill...' : 'Complete Checkout & Print Bill'}
+                                    {loading ? 'Processing Bill...' : cart.some(i => i.isUnmapped) ? 'Please Map/Remove Unknown Items' : 'Complete Checkout & Print Bill'}
                                 </button>
                             </div>
                         </div>
@@ -584,7 +745,7 @@ export default function POSPage() {
                                 ) : recentSales.length === 0 ? (
                                     <tr><td colSpan="7" className="text-center py-16 text-slate-500 font-medium text-[13px]"><div className="flex items-center justify-center gap-2"><FileText size={16}/> No transactions yet.</div></td></tr>
                                 ) : (
-                                    recentSales.slice(0, 10).map((sale) => {
+                                    currentItems.map((sale) => {
                                         let isSaleControlled = false;
                                         if (sale.items && Array.isArray(sale.items)) {
                                             isSaleControlled = sale.items.some(item => {
@@ -661,6 +822,44 @@ export default function POSPage() {
                                 )}
                                 </tbody>
                             </table>
+
+                            {totalPages > 1 && (
+                                <div className="flex justify-end items-center gap-2 mt-4 pt-4 border-t border-white/30">
+                                    <button
+                                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                                        disabled={currentPage === 1}
+                                        className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white/50 text-slate-500 hover:bg-white disabled:opacity-50 text-[12px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                                    >
+                                        <ChevronLeft size={14} /> Prev
+                                    </button>
+                                    <div className="flex items-center gap-1">
+                                        {[...Array(totalPages)].map((_, idx) => {
+                                            const pageNum = idx + 1;
+                                            return (
+                                                <button
+                                                    key={pageNum}
+                                                    onClick={() => setCurrentPage(pageNum)}
+                                                    className={`w-7 h-7 flex items-center justify-center rounded-lg text-[12px] font-bold transition-all cursor-pointer ${
+                                                        currentPage === pageNum
+                                                            ? 'bg-indigo-500 text-white shadow-sm'
+                                                            : 'bg-white/50 border border-slate-200 text-slate-600 hover:bg-white'
+                                                    }`}
+                                                >
+                                                    {pageNum}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <button
+                                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                                        disabled={currentPage === totalPages}
+                                        className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white/50 text-slate-500 hover:bg-white disabled:opacity-50 text-[12px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                                    >
+                                        Next <ChevronRight size={14} />
+                                    </button>
+                                </div>
+                            )}
+
                         </div>
                     </div>
 
