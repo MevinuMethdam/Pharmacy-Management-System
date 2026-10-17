@@ -1,0 +1,794 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { useLocation } from 'react-router-dom';
+import PharmacistLayout from '../../components/layout/PharmacistLayout';
+import { Receipt, Plus, Trash2, Calendar, FileText, Package, Search, X, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
+import axios from 'axios';
+import api from '../../api/axiosInstance';
+import { inventoryApi } from '../../api/inventoryApi';
+
+const COMMON_GENERICS = [
+    // A
+    "Abacavir", "Acarbose", "Acetaminophen", "Acetazolamide", "Acyclovir", "Adrenaline", "Albendazole",
+    "Albuterol", "Alendronate", "Allopurinol", "Alprazolam", "Aluminum Hydroxide", "Amiodarone",
+    "Amitriptyline", "Amlodipine", "Amoxicillin", "Amoxicillin + Clavulanic Acid", "Ampicillin",
+    "Aspirin", "Atenolol", "Atorvastatin", "Azathioprine", "Azithromycin",
+    // B
+    "Bacitracin", "Beclometasone", "Bedaquiline", "Betamethasone", "Bezafibrate", "Bisacodyl",
+    "Bisoprolol", "Bromhexine", "Budesonide", "Bupivacaine", "Buscopan",
+    // C
+    "Calamine", "Calcium Carbonate", "Candesartan", "Captopril", "Carbamazepine", "Carbimazole",
+    "Carvedilol", "Cefadroxil", "Cefalexin", "Cefazolin", "Cefdinir", "Cefepime", "Cefixime",
+    "Cefotaxime", "Cefpodoxime", "Ceftazidime", "Ceftriaxone", "Cefuroxime", "Celecoxib",
+    "Cetirizine", "Chloramphenicol", "Chlorhexidine", "Chloroquine", "Chlorpheniramine",
+    "Ciprofloxacin", "Clarithromycin", "Clindamycin", "Clobetasol", "Clomifene", "Clonazepam",
+    "Clonidine", "Clopidogrel", "Clotrimazole", "Cloxacillin", "Colchicine", "Colistin",
+    // D
+    "Dabigatran", "Dapagliflozin", "Dapsone", "Daptomycin", "Dexamethasone", "Dextromethorphan",
+    "Diazepam", "Diclofenac", "Digoxin", "Diltiazem", "Diphenhydramine", "Divalproex",
+    "Dobutamine", "Domperidone", "Donepezil", "Dopamine", "Doxycycline", "Dydrogesterone",
+    // E
+    "Enalapril", "Enoxaparin", "Empagliflozin", "Epinephrine", "Erythromycin", "Escitalopram",
+    "Esomeprazole", "Ethambutol", "Ethosuximide", "Ezetimibe",
+    // F
+    "Famotidine", "Fenofibrate", "Fentanyl", "Ferrous Sulfate", "Fexofenadine", "Fluconazole",
+    "Fluoxetine", "Fluticasone", "Folic Acid", "Furosemide", "Fusidic Acid",
+    // G
+    "Gabapentin", "Gemfibrozil", "Gentamicin", "Glibenclamide", "Gliclazide", "Glimepiride",
+    "Glipizide", "Griseofulvin", "Guaifenesin",
+    // H
+    "Haloperidol", "Heparin", "Hydralazine", "Hydrochlorothiazide", "Hydrocortisone",
+    "Hydrogen Peroxide", "Hydroxychloroquine", "Hydroxyzine", "Hyoscine",
+    // I
+    "Ibuprofen", "Imipenem", "Indomethacin", "Insulin (Isophane)", "Insulin (Regular)",
+    "Iodine", "Ipratropium", "Irbesartan", "Iron", "Isosorbide Dinitrate", "Isosorbide Mononitrate",
+    // K
+    "Ketamine", "Ketoconazole", "Ketoprofen", "Ketorolac",
+    // L
+    "Labetalol", "Lactulose", "Lamivudine", "Lamotrigine", "Lansoprazole", "Latanoprost",
+    "Levocetirizine", "Levodopa", "Levofloxacin", "Levothyroxine", "Lidocaine", "Linagliptin",
+    "Lincomycin", "Linezolid", "Lisinopril", "Lithium", "Loperamide", "Loratadine",
+    "Lorazepam", "Losartan", "Lovastatin", "Lumefantrine",
+    // M
+    "Magnesium Sulfate", "Mannitol", "Mebendazole", "Mebeverine", "Mefenamic Acid",
+    "Mefloquine", "Meloxicam", "Meropenem", "Metformin", "Methimazole", "Methotrexate",
+    "Methyldopa", "Methylprednisolone", "Metoclopramide", "Metoprolol", "Metronidazole",
+    "Miconazole", "Midazolam", "Minocycline", "Montelukast", "Morphine", "Moxifloxacin", "Mupirocin",
+    // N
+    "Nalidixic Acid", "Naloxone", "Naproxen", "Neomycin", "Neostigmine", "Nevirapine",
+    "Nifedipine", "Nitrofurantoin", "Nitroglycerin", "Norethisterone", "Nystatin",
+    // O
+    "Ofloxacin", "Olanzapine", "Olmesartan", "Omeprazole", "Ondansetron", "Ornidazole",
+    "Oseltamivir", "Oxytocin",
+    // P
+    "Pantoprazole", "Paracetamol", "Penicillin V", "Permethrin", "Phenobarbital",
+    "Phenoxymethylpenicillin", "Phenytoin", "Phytomenadione", "Pioglitazone", "Piperacillin",
+    "Piroxicam", "Polymyxin B", "Potassium Chloride", "Povidone-Iodine", "Pramipexole",
+    "Prasugrel", "Pravastatin", "Prazosin", "Prednisolone", "Pregabalin", "Proguanil",
+    "Promethazine", "Propofol", "Propranolol", "Propylthiouracil", "Pyrantel", "Pyrazinamide", "Pyrimethamine",
+    // Q
+    "Quetiapine", "Quinine",
+    // R
+    "Rabeprazole", "Ramipril", "Ranitidine", "Rifampicin", "Risperidone", "Rivaroxaban",
+    "Rosuvastatin", "Roxithromycin",
+    // S
+    "Salbutamol", "Salicylic Acid", "Secnidazole", "Sertraline", "Sevelamer", "Sildenafil",
+    "Silver Sulfadiazine", "Simvastatin", "Sitagliptin", "Sodium Bicarbonate", "Sodium Chloride",
+    "Sodium Valproate", "Spironolactone", "Streptomycin", "Sucralfate", "Sulfamethoxazole", "Sulfasalazine",
+    // T
+    "Tamsulosin", "Tazobactam", "Teicoplanin", "Telmisartan", "Tenoxicam", "Terbinafine",
+    "Tetanus Toxoid", "Tetracycline", "Theophylline", "Thiamine", "Thyroxine", "Ticagrelor",
+    "Tigecycline", "Timolol", "Tinidazole", "Tobramycin", "Tolterodine", "Topiramate",
+    "Tramadol", "Tranexamic Acid", "Trimethoprim",
+    // U
+    "Ursodeoxycholic Acid",
+    // V
+    "Valacyclovir", "Valproic Acid", "Valsartan", "Vancomycin", "Verapamil", "Vildagliptin",
+    "Vitamin A", "Vitamin B Complex", "Vitamin C", "Vitamin D", "Vitamin E",
+    // W
+    "Warfarin",
+    // X
+    "Xylometazoline",
+    // Z
+    "Zidovudine", "Zinc Oxide", "Zinc Sulfate", "Zolpidem", "Zopiclone"
+];
+
+export default function PharmacistPurchasesPage() {
+    const location = useLocation();
+    const [purchases, setPurchases] = useState([]);
+    const [suppliers, setSuppliers] = useState([]);
+    const [medicines, setMedicines] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+
+    const highlightInvoices = location.state?.highlightInvoices || [];
+
+    const generateUniqueCode = () => Math.floor(10000 + Math.random() * 90000);
+
+    const initialFormState = {
+        invoiceNumber: '',
+        grnNumber: `GRN-${Date.now()}`,
+        supplierId: '',
+        invoiceDate: new Date().toISOString().split('T')[0],
+        dueDate: '',
+        notes: '',
+        items: [{
+            medicineId: '', medicineName: '', isNew: true, genericName: '', unit: 'Tablets', barcode: '',
+            batchNumber: '', expiryDate: '', quantity: '', costPrice: '', sellingPrice: '', subtotal: 0,
+            _uniqueCode: generateUniqueCode(), _manualBarcode: false
+        }]
+    };
+
+    const [formData, setFormData] = useState(initialFormState);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        fetchData(controller).catch(console.error);
+
+        return () => {
+            controller.abort();
+        };
+    }, []);
+
+    const checkExpiries = (meds, controller = null) => {
+        const reqConfig = controller ? { signal: controller.signal } : {};
+
+        api.post('/notifications/trigger-expiry-emails', { medicines: meds }, reqConfig)
+            .then(res => {
+                console.log('Background Expiry Checks Passed & Running:', res.data);
+            })
+            .catch(err => {
+                if (axios.isCancel(err)) {
+                    console.log('Expiry email check safely canceled due to page navigation.');
+                } else {
+                    console.log('Email trigger request failed.', err);
+                }
+            });
+    };
+
+    const fetchData = async (controller = null) => {
+        setLoading(true);
+        try {
+            const reqConfig = controller ? { signal: controller.signal } : {};
+
+            const supRes = await api.get('/suppliers', reqConfig).catch(err => {
+                if (axios.isCancel(err)) throw err;
+                console.error("Supplier Error:", err);
+                return { data: [] };
+            });
+
+            const medRes = await inventoryApi.getAll().catch(err => {
+                console.error("Medicine Error:", err);
+                return { data: [] };
+            });
+
+            const purRes = await api.get('/purchases', reqConfig).catch(err => {
+                if (axios.isCancel(err)) throw err;
+                console.error("Purchase Error:", err);
+                return { data: [] };
+            });
+
+            setSuppliers(supRes.data || []);
+            const medsData = medRes.data || [];
+            setMedicines(medsData);
+            setPurchases(purRes.data || []);
+
+            checkExpiries(medsData, controller);
+
+        } catch (err) {
+            if (axios.isCancel(err)) {
+                console.log('API Request safely canceled to free browser connection pool.');
+            } else {
+                toast.error('Failed to load data. Please check backend connection.');
+                console.error(err);
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const uniqueGenericNames = useMemo(() => {
+        const dbGenerics = medicines.map(m => m.genericName).filter(Boolean);
+        const combined = [...COMMON_GENERICS, ...dbGenerics];
+        return [...new Set(combined)].sort();
+    }, [medicines]);
+
+    const isDuplicateInvoice = useMemo(() => {
+        if (!formData.invoiceNumber || !formData.supplierId) return false;
+
+        return purchases.some(p =>
+            String(p.supplierId) === String(formData.supplierId) &&
+            p.invoiceNumber.toLowerCase().trim() === formData.invoiceNumber.toLowerCase().trim()
+        );
+    }, [formData.invoiceNumber, formData.supplierId, purchases]);
+
+    const handleAddItem = () => {
+        if (!formData.supplierId) {
+            toast.error("Please select a Supplier first to add medicines.");
+            return;
+        }
+        setFormData({
+            ...formData,
+            items: [
+                ...formData.items,
+                {
+                    medicineId: '', medicineName: '', isNew: true, genericName: '', unit: 'Tablets', barcode: '',
+                    batchNumber: '', expiryDate: '', quantity: '', costPrice: '', sellingPrice: '', subtotal: 0,
+                    _uniqueCode: generateUniqueCode(), _manualBarcode: false
+                }
+            ]
+        });
+    };
+
+    const handleRemoveItem = (index) => {
+        const newItems = [...formData.items];
+        newItems.splice(index, 1);
+        setFormData({ ...formData, items: newItems });
+    };
+
+    const handleMedicineInput = (index, value) => {
+        const newItems = [...formData.items];
+        newItems[index].medicineName = value;
+
+        const selectedMed = medicines.find(m =>
+            (String(m.supplierId) === String(formData.supplierId)) &&
+            (m.name.toLowerCase() === value.toLowerCase())
+        );
+
+        if (selectedMed) {
+            newItems[index].medicineId = selectedMed.id;
+            newItems[index].isNew = false;
+            newItems[index].genericName = selectedMed.genericName || 'N/A';
+            newItems[index].unit = selectedMed.category || 'Tablets';
+            newItems[index].barcode = selectedMed.barcode || 'N/A';
+            newItems[index].costPrice = selectedMed.costPrice || 0;
+            newItems[index].sellingPrice = selectedMed.sellingPrice || 0;
+            newItems[index].quantity = selectedMed.quantity || 10;
+            newItems[index].batchNumber = selectedMed.batchNumber || '';
+
+            if (selectedMed.expiryDate) {
+                newItems[index].expiryDate = selectedMed.expiryDate.split('T')[0];
+            }
+        } else {
+            newItems[index].medicineId = value;
+            newItems[index].isNew = true;
+            newItems[index].genericName = newItems[index].genericName === 'N/A' ? '' : newItems[index].genericName;
+
+            if (!newItems[index]._manualBarcode) {
+                const selectedSupplier = suppliers.find(s => String(s.id) === String(formData.supplierId));
+                let companyPrefix = selectedSupplier && selectedSupplier.companyName
+                    ? selectedSupplier.companyName.replace(/[^a-zA-Z0-9]/g, '').substring(0, 3).toUpperCase() : 'SUP';
+                companyPrefix = companyPrefix.padEnd(3, 'X');
+
+                let medPrefix = value ? value.replace(/[^a-zA-Z0-9]/g, '').substring(0, 3).toUpperCase() : 'MED';
+                medPrefix = medPrefix.padEnd(3, 'X');
+
+                newItems[index].barcode = `${companyPrefix}-${medPrefix}-${newItems[index]._uniqueCode}`;
+            }
+        }
+
+        const qty = Number(newItems[index].quantity) || 0;
+        const cost = Number(newItems[index].costPrice) || 0;
+        newItems[index].subtotal = (qty * cost).toFixed(2);
+
+        setFormData({ ...formData, items: newItems });
+    };
+
+    const handleItemChange = (index, field, value) => {
+        const newItems = [...formData.items];
+        newItems[index][field] = value;
+
+        if (field === 'barcode') { newItems[index]._manualBarcode = true; }
+
+        if (field === 'quantity' || field === 'costPrice') {
+            const qty = Number(newItems[index].quantity) || 0;
+            const cost = Number(newItems[index].costPrice) || 0;
+            newItems[index].subtotal = (qty * cost).toFixed(2);
+        }
+
+        setFormData({ ...formData, items: newItems });
+    };
+
+    const handleSupplierChange = (e) => {
+        const selectedSupplierId = e.target.value;
+        const selectedSup = suppliers.find(s => String(s.id) === String(selectedSupplierId));
+        const creditDays = selectedSup ? Number(selectedSup.creditPeriod || 0) : 0;
+
+        const invDateObj = new Date(formData.invoiceDate);
+        invDateObj.setDate(invDateObj.getDate() + creditDays);
+        const newDueDate = invDateObj.toISOString().split('T')[0];
+
+        setFormData({
+            ...formData,
+            supplierId: selectedSupplierId,
+            dueDate: newDueDate,
+            items: [{
+                medicineId: '', medicineName: '', isNew: true, genericName: '', unit: 'Tablets', barcode: '', batchNumber: '',
+                expiryDate: '', quantity: '', costPrice: '', sellingPrice: '', subtotal: 0,
+                _uniqueCode: generateUniqueCode(), _manualBarcode: false
+            }]
+        });
+    };
+
+    const handleInvoiceDateChange = (e) => {
+        const newInvoiceDate = e.target.value;
+        const selectedSup = suppliers.find(s => String(s.id) === String(formData.supplierId));
+        const creditDays = selectedSup ? Number(selectedSup.creditPeriod || 0) : 0;
+
+        const invDateObj = new Date(newInvoiceDate);
+        invDateObj.setDate(invDateObj.getDate() + creditDays);
+        const newDueDate = invDateObj.toISOString().split('T')[0];
+
+        setFormData({
+            ...formData,
+            invoiceDate: newInvoiceDate,
+            dueDate: newDueDate
+        });
+    };
+
+    const calculateTotal = () => {
+        return formData.items.reduce((sum, item) => sum + Number(item.subtotal || 0), 0).toFixed(2);
+    };
+
+    const handleSubmit = async (e) => {
+        if (e) e.preventDefault();
+
+        if (isDuplicateInvoice) {
+            toast.error('This Invoice Number is already saved for this supplier.');
+            return;
+        }
+
+        if (!formData.supplierId || !formData.invoiceNumber || !formData.invoiceDate || !formData.dueDate) {
+            toast.error('Please fill all required invoice header fields (Supplier, Invoice No, Dates).');
+            return;
+        }
+
+        if (formData.items.length === 0 || !formData.items[0].medicineId) {
+            toast.error('Please enter at least one medicine to save the GRN!');
+            return;
+        }
+
+        const hasInvalidItem = formData.items.some(item => !item.medicineId || !item.batchNumber || !item.expiryDate || item.quantity <= 0 || item.costPrice <= 0);
+        if (hasInvalidItem) {
+            toast.error('Please check the medicine items. Ensure Batch, Expiry, Qty, and Cost are filled correctly.');
+            return;
+        }
+
+        setSubmitting(true);
+        try {
+            const formattedItems = formData.items.map(item => ({
+                ...item,
+                name: item.medicineName,
+                quantity: Number(item.quantity),
+                costPrice: Number(item.costPrice),
+                sellingPrice: Number(item.sellingPrice || item.costPrice || 0),
+                subtotal: Number(item.subtotal)
+            }));
+
+            const payload = {
+                ...formData,
+                items: formattedItems,
+                totalAmount: Number(calculateTotal())
+            };
+
+            await api.post('/purchases', payload);
+
+            toast.success('GRN Saved! Stock & Supplier Accounts updated automatically. 🎉');
+
+            setIsModalOpen(false);
+            setFormData({ ...initialFormState, grnNumber: `GRN-${Date.now()}` });
+            fetchData();
+        } catch (err) {
+            const errorMsg = err.response?.data?.error || 'Failed to create GRN. Please check your data.';
+            toast.error(errorMsg);
+            console.error(err);
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const filteredPurchases = purchases.filter(p =>
+        p.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.supplier?.companyName.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    return (
+        <PharmacistLayout>
+            <style>{`
+                .modal-scroll::-webkit-scrollbar { width: 6px; height: 6px; background-color: transparent; }
+                .modal-scroll::-webkit-scrollbar-thumb { background-color: transparent; border-radius: 10px; }
+                .modal-scroll:hover::-webkit-scrollbar-thumb { background-color: #cbd5e1; }
+                
+                .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+                .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 4px; }
+                
+                @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+                .animate-pulse-soft { animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+            `}</style>
+
+            <div className="relative font-sans z-0 min-h-[calc(100vh-6rem)] bg-slate-50/80 backdrop-blur-[24px] rounded-[32px] border border-white/60 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden p-6 mb-4">
+                <div className="absolute inset-0 z-[-3] opacity-[0.03] pointer-events-none mix-blend-multiply" style={{ backgroundImage: "url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjEuNSIgZmlsbD0iIzBmMzQ2MCIvPjwvc3ZnPg==')" }}></div>
+                <div className="absolute top-[-20%] left-[-10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-br from-indigo-200/20 to-slate-300/20 blur-[120px] pointer-events-none z-[-2]"></div>
+                <div className="absolute bottom-[-20%] right-[-10%] w-[70vw] h-[70vw] rounded-full bg-gradient-to-tl from-slate-300/20 to-indigo-200/20 blur-[140px] pointer-events-none z-[-2]"></div>
+
+                <div className="relative z-10 w-full h-full flex flex-col gap-6">
+
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-2xl bg-white/40 backdrop-blur-md shadow-sm flex items-center justify-center border border-white/60">
+                                <Receipt size={20} strokeWidth={2.5} className="text-indigo-600" />
+                            </div>
+                            <div>
+                                <h1 className="text-[26px] font-bold text-[#1e293b] tracking-tight leading-none">Purchases & GRN</h1>
+                                <p className="text-[13px] font-medium text-slate-500 mt-1.5">Manage supplier invoices and update inventory stock</p>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={() => setIsModalOpen(true)}
+                            className="flex items-center gap-2 px-5 py-3 bg-indigo-500/90 backdrop-blur-md text-white font-bold rounded-2xl shadow-[0_10px_25px_-5px_rgba(99,102,241,0.3)] hover:bg-indigo-600 transition-all active:scale-[0.98] text-[14px] cursor-pointer border border-indigo-400/50"
+                        >
+                            <Plus size={18} strokeWidth={2.5} /> Enter New GRN (Bill)
+                        </button>
+                    </div>
+
+                    <div className="bg-white/30 backdrop-blur-2xl rounded-[32px] border border-white/50 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden flex flex-col mt-2">
+
+                        <div className="p-6 border-b border-white/30 flex flex-col lg:flex-row justify-between gap-4 bg-white/10">
+                            <div className="relative w-full">
+                                <Search size={18} className="absolute left-4 top-3.5 text-slate-400" />
+                                <input
+                                    type="text"
+                                    placeholder="Search by Invoice Number or Supplier..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full pl-11 pr-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm backdrop-blur-sm"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="overflow-x-auto modal-scroll px-8 py-4">
+                            <table className="w-full text-left border-collapse table-fixed min-w-[900px]">
+                                <thead>
+                                <tr>
+                                    <th className="w-[14%] px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Invoice / GRN No</th>
+                                    <th className="w-[17%] px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Supplier</th>
+                                    <th className="w-[12%] px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Invoice Date</th>
+                                    <th className="w-[12%] px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Due Date</th>
+                                    <th className="w-[15%] px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Total Amount</th>
+                                    <th className="w-[15%] px-3 pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 align-bottom leading-tight">Status</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                {loading ? (
+                                    <tr><td colSpan="6" className="text-center py-16 text-slate-500 font-medium text-[13px]">Loading GRN history...</td></tr>
+                                ) : filteredPurchases.length === 0 ? (
+                                    <tr><td colSpan="6" className="text-center py-16 text-slate-500 font-medium text-[13px]">No purchase records found.</td></tr>
+                                ) : filteredPurchases.map((purchase) => {
+
+                                    const status = purchase.paymentStatus || 'Unpaid';
+                                    const isPaid = status === 'Paid';
+                                    const isPartial = status === 'Partial';
+
+                                    const matchedSupplier = suppliers.find(s => String(s.id) === String(purchase.supplierId) || String(s.id) === String(purchase.supplier?.id)) || purchase.supplier;
+
+                                    const isSpeciallyHighlighted = highlightInvoices.includes(purchase.invoiceNumber);
+
+                                    let rowHighlightClass = "hover:bg-white/20 border-white/20";
+                                    let dueWarningText = null;
+
+                                    if (!isPaid && purchase.dueDate) {
+                                        const today = new Date();
+                                        const dueDateObj = new Date(purchase.dueDate);
+                                        today.setHours(0,0,0,0);
+                                        dueDateObj.setHours(0,0,0,0);
+
+                                        const diffTime = dueDateObj.getTime() - today.getTime();
+                                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                                        if (diffDays < 0) {
+                                            rowHighlightClass = "bg-rose-50 hover:bg-rose-100 border-rose-200";
+                                            dueWarningText = "Overdue!";
+                                        } else if (diffDays <= 5) {
+                                            rowHighlightClass = "bg-rose-50/70 hover:bg-rose-100 border-rose-200";
+                                            dueWarningText = `Due in ${diffDays} Days`;
+                                        }
+                                    }
+
+                                    if (isSpeciallyHighlighted) {
+                                        rowHighlightClass = "bg-rose-200 hover:bg-rose-300 border-rose-400 shadow-[inset_6px_0_0_0_#be123c] z-10 relative animate-pulse-soft";
+                                    }
+
+                                    return (
+                                        <tr key={purchase.id} className={`group transition-all duration-300 border-b last:border-0 ${rowHighlightClass}`}>
+                                            <td className="px-3 py-4 align-top pt-5">
+                                                <p className="font-bold text-[14px] text-indigo-700">{purchase.invoiceNumber}</p>
+                                                <p className="text-[11px] text-slate-500 font-bold mt-1 font-mono">{purchase.grnNumber}</p>
+                                            </td>
+                                            <td className="px-3 py-4 align-top pt-5">
+                                                <p className="text-[14px] font-bold text-[#1e293b] break-words">{matchedSupplier?.companyName || 'Unknown Supplier'}</p>
+                                                {matchedSupplier?.brNumber && (
+                                                    <span className="block text-[11px] text-slate-500 font-medium mt-1">NMRA: {matchedSupplier.brNumber}</span>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-4 align-top pt-5 text-[13px] font-medium text-slate-600">
+                                                <div className="flex items-center gap-1.5"><Calendar size={14} className="text-slate-400 flex-shrink-0"/> {new Date(purchase.invoiceDate).toLocaleDateString()}</div>
+                                            </td>
+
+                                            <td className={`px-3 py-4 align-top pt-5 text-[13px] font-bold ${isPaid ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                                <div className="flex flex-col gap-1">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <Clock size={14} className={`flex-shrink-0 ${isPaid ? 'text-emerald-500' : 'text-rose-400'}`}/>
+                                                        {purchase.dueDate ? new Date(purchase.dueDate).toLocaleDateString() : '-'}
+                                                    </div>
+                                                    {dueWarningText && (
+                                                        <span className="text-[10px] font-bold text-rose-600 bg-rose-100/80 px-1.5 py-0.5 rounded w-fit mt-0.5 shadow-sm border border-rose-200/50">
+                                                            {dueWarningText}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
+
+                                            <td className="px-3 py-4 align-top pt-5">
+                                                <p className="text-[14px] font-bold text-slate-800">
+                                                    LKR {Number(purchase.totalAmount).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                                                </p>
+                                                {(isPartial || isPaid) && (
+                                                    <p className="text-[10px] font-bold text-slate-400 mt-0.5">
+                                                        Paid: LKR {Number(purchase.paidAmount || 0).toLocaleString()}
+                                                    </p>
+                                                )}
+                                            </td>
+
+                                            <td className="px-3 py-4 align-top pt-5">
+                                                {isPaid && (
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-100/80 text-emerald-700 border border-emerald-200/50">
+                                                        <CheckCircle size={12} strokeWidth={3} /> Paid
+                                                    </span>
+                                                )}
+                                                {isPartial && (
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-100/80 text-blue-700 border border-blue-200/50">
+                                                        <AlertCircle size={12} strokeWidth={3} /> Partial
+                                                    </span>
+                                                )}
+                                                {!isPaid && !isPartial && (
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-100/80 text-amber-700 border border-amber-200/50">
+                                                        Unpaid
+                                                    </span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {isModalOpen && createPortal(
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-md flex items-center justify-center z-[9990] p-4">
+                    <div className="bg-slate-50/95 backdrop-blur-2xl p-6 md:p-8 rounded-[32px] shadow-[0_16px_40px_0_rgba(31,38,135,0.2)] border border-white w-full max-w-[1300px] max-h-[95vh] overflow-hidden flex flex-col relative">
+
+                        <div className="flex justify-between items-center mb-6 flex-shrink-0">
+                            <div>
+                                <h2 className="text-[22px] font-bold text-slate-800 flex items-center gap-2.5">
+                                    <Receipt className="text-indigo-600" /> Goods Receipt Note (GRN)
+                                </h2>
+                                <p className="text-[12px] font-medium text-slate-500 mt-1">Select an existing medicine from the list, OR type a new medicine name to automatically add it to inventory.</p>
+                            </div>
+                            <button onClick={() => setIsModalOpen(false)} className="hover:bg-white p-2 rounded-full transition-colors border border-transparent hover:border-slate-200 cursor-pointer text-slate-400">
+                                <X className="w-6 h-6" />
+                            </button>
+                        </div>
+
+                        <form id="grn-form" className="flex flex-col flex-1 overflow-hidden">
+                            <div className="overflow-y-auto modal-scroll flex-1 pr-2 space-y-6">
+
+                                <div className="bg-white/80 border border-white shadow-sm rounded-2xl p-5 space-y-4">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <FileText size={16} className="text-indigo-500"/>
+                                        <h3 className="text-[14px] font-bold text-slate-700 uppercase tracking-wider">Invoice Header</h3>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Supplier *</label>
+                                            <select required className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[13px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer"
+                                                    value={formData.supplierId} onChange={handleSupplierChange}>
+                                                <option value="">-- Select Supplier --</option>
+                                                {suppliers.map(s => <option key={s.id} value={s.id}>{s.companyName}{s.brNumber ? ` - NMRA: ${s.brNumber}` : ''}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Invoice Number *</label>
+                                            <input type="text" required placeholder="e.g. INV-90210"
+                                                   className={`w-full px-4 py-2.5 bg-white border ${isDuplicateInvoice ? 'border-rose-500 focus:ring-rose-500/40' : 'border-slate-200 focus:ring-indigo-500/40'} rounded-xl text-[13px] font-bold text-slate-800 outline-none focus:ring-2 shadow-sm transition-colors`}
+                                                   value={formData.invoiceNumber} onChange={e => setFormData({...formData, invoiceNumber: e.target.value})} />
+                                            {isDuplicateInvoice && (
+                                                <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1 flex items-center gap-1">
+                                                    <AlertCircle size={10} /> Duplicate Invoice for this Supplier
+                                                </p>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">GRN Number</label>
+                                            <input type="text" disabled className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-[13px] font-bold text-slate-500 cursor-not-allowed"
+                                                   value={formData.grnNumber} />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Invoice Date *</label>
+                                            <input type="date" required className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[13px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer"
+                                                   value={formData.invoiceDate} onChange={handleInvoiceDateChange} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Credit Terms</label>
+                                            <input type="text" disabled className="w-full px-4 py-2.5 bg-indigo-50/50 border border-indigo-100 rounded-xl text-[13px] font-black text-indigo-700 cursor-not-allowed shadow-sm"
+                                                   value={
+                                                       formData.supplierId
+                                                           ? `${suppliers.find(s => String(s.id) === String(formData.supplierId))?.creditPeriod || 0} Days`
+                                                           : 'Select Supplier First'
+                                                   } />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Due Date *</label>
+                                            <input type="date" required className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[13px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer"
+                                                   value={formData.dueDate} onChange={e => setFormData({...formData, dueDate: e.target.value})} />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white/80 border border-white shadow-sm rounded-2xl p-5">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div className="flex items-center gap-2">
+                                            <Package size={16} className="text-indigo-500"/>
+                                            <h3 className="text-[14px] font-bold text-slate-700 uppercase tracking-wider">Line Items (Medicines)</h3>
+                                        </div>
+                                        <button type="button" onClick={handleAddItem} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg text-[12px] font-bold transition-colors shadow-sm cursor-pointer">
+                                            <Plus size={14} /> Add Row
+                                        </button>
+                                    </div>
+
+                                    <div className="rounded-xl border border-slate-200 pb-2">
+                                        <table className="w-full text-left bg-white table-fixed">
+                                            <thead className="bg-slate-50 border-b border-slate-200">
+                                            <tr>
+                                                <th className="p-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider w-[18%]">Medicine *</th>
+                                                <th className="p-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider w-[13%]">Generic Name</th>
+                                                <th className="p-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider w-[11%]">Category</th>
+                                                <th className="p-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider w-[12%]">Barcode</th>
+                                                <th className="p-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider w-[10%]">Batch *</th>
+                                                <th className="p-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider w-[11%]">Expiry *</th>
+                                                <th className="p-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider w-[7%]">Qty *</th>
+                                                <th className="p-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider w-[8%]">Cost (LKR) *</th>
+                                                <th className="p-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider w-[7%] text-right">Subtotal</th>
+                                                <th className="p-2 text-center w-[3%]"></th>
+                                            </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                            {formData.items.map((item, index) => (
+                                                <tr key={index} className="hover:bg-slate-50/50 transition-colors">
+
+                                                    <td className="p-2 align-top relative">
+                                                        <input
+                                                            type="text"
+                                                            list={`medicines-list-${index}`}
+                                                            required
+                                                            placeholder={formData.supplierId ? "Type or select..." : "Select Supplier first"}
+                                                            disabled={!formData.supplierId}
+                                                            className="w-full p-2 bg-white border border-indigo-200 rounded-lg text-[13px] font-bold text-indigo-800 outline-none focus:ring-2 focus:ring-indigo-500/40 shadow-sm disabled:bg-slate-100"
+                                                            value={item.medicineName}
+                                                            onChange={e => handleMedicineInput(index, e.target.value)}
+                                                        />
+                                                        <datalist id={`medicines-list-${index}`}>
+                                                            {medicines.filter(m => String(m.supplierId) === String(formData.supplierId)).map(m => (
+                                                                <option key={m.id} value={m.name} />
+                                                            ))}
+                                                        </datalist>
+                                                        {item.isNew && item.medicineName && (
+                                                            <span className="absolute -bottom-3 left-3 text-[9px] font-black text-emerald-500 bg-emerald-50 px-1 rounded">NEW ITEM</span>
+                                                        )}
+                                                    </td>
+
+                                                    <td className="p-2 align-top">
+                                                        <input type="text" readOnly={!item.isNew}
+                                                               list="generic-names-list"
+                                                               className={`w-full p-2 border rounded-lg text-[12px] font-bold outline-none ${!item.isNew ? 'bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed' : 'bg-white border-slate-200 text-slate-800 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 shadow-sm'}`}
+                                                               value={item.genericName}
+                                                               onChange={e => handleItemChange(index, 'genericName', e.target.value)}
+                                                               placeholder={!item.isNew ? "Auto Fill" : "Type 2 letters..."} />
+                                                    </td>
+
+                                                    <td className="p-2 align-top">
+                                                        <select disabled={!item.isNew}
+                                                                className={`w-full p-2 border rounded-lg text-[12px] font-bold outline-none ${!item.isNew ? 'bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed' : 'bg-white border-slate-200 text-slate-800 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 shadow-sm cursor-pointer'}`}
+                                                                value={item.unit}
+                                                                onChange={e => handleItemChange(index, 'unit', e.target.value)}>
+                                                            <option value="Tablets">Tablets</option>
+                                                            <option value="Capsules">Capsules</option>
+                                                            <option value="Syrup">Syrup</option>
+                                                            <option value="Injection">Injection</option>
+                                                            <option value="Cream/Ointment">Cream</option>
+                                                            <option value="Other">Other</option>
+                                                        </select>
+                                                    </td>
+
+                                                    <td className="p-2 align-top">
+                                                        <input type="text" readOnly={true}
+                                                               className="w-full p-2 bg-slate-100 border border-slate-200 rounded-lg text-[12px] font-bold text-slate-500 cursor-not-allowed outline-none shadow-sm"
+                                                               value={item.barcode}
+                                                               placeholder="Auto Generated" />
+                                                    </td>
+
+                                                    <td className="p-2 align-top">
+                                                        <input type="text" required placeholder="Type Batch..." className="w-full p-2 bg-white border border-slate-200 rounded-lg text-[12px] font-bold text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 shadow-sm"
+                                                               value={item.batchNumber} onChange={e => handleItemChange(index, 'batchNumber', e.target.value)} />
+                                                    </td>
+
+                                                    <td className="p-2 align-top">
+                                                        <input type="date" required className="w-full p-2 bg-white border border-slate-200 rounded-lg text-[12px] font-bold text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 cursor-pointer shadow-sm"
+                                                               value={item.expiryDate} onChange={e => handleItemChange(index, 'expiryDate', e.target.value)} />
+                                                    </td>
+
+                                                    <td className="p-2 align-top">
+                                                        <input type="number" required min="1" className="w-full p-2 bg-white border border-slate-200 rounded-lg text-[12px] font-bold text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 shadow-sm"
+                                                               value={item.quantity} onChange={e => handleItemChange(index, 'quantity', e.target.value)} />
+                                                    </td>
+
+                                                    <td className="p-2 align-top">
+                                                        <input type="number" required min="0" step="0.01" className="w-full p-2 bg-white border border-slate-200 rounded-lg text-[12px] font-bold text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 shadow-sm"
+                                                               value={item.costPrice} onChange={e => handleItemChange(index, 'costPrice', e.target.value)} />
+                                                    </td>
+
+                                                    <td className="p-2 align-top text-right font-black text-[14px] text-slate-800 pt-2.5">
+                                                        {Number(item.subtotal).toFixed(2)}
+                                                    </td>
+
+                                                    <td className="p-2 align-top text-center pt-2">
+                                                        <button type="button" onClick={() => handleRemoveItem(index)} className="p-1.5 text-rose-400 hover:text-white hover:bg-rose-500 rounded-md transition-all cursor-pointer"><Trash2 size={16}/></button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div className="h-4"></div>
+                            </div>
+
+                            <div className="mt-4 pt-4 border-t border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 flex-shrink-0">
+                                <div className="flex flex-col">
+                                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Grand Total</span>
+                                    <span className="text-[26px] font-black text-indigo-600 leading-none">LKR {calculateTotal()}</span>
+                                </div>
+
+                                <div className="flex gap-3 w-full md:w-auto">
+                                    <button type="button" onClick={() => setIsModalOpen(false)} className="w-full md:w-auto px-6 py-3.5 bg-white border border-slate-200 text-slate-600 rounded-2xl font-bold text-[13px] hover:bg-slate-50 transition-colors shadow-sm cursor-pointer">
+                                        Cancel
+                                    </button>
+
+                                    <button type="button" onClick={handleSubmit} disabled={submitting || isDuplicateInvoice} className="w-full md:w-auto flex items-center justify-center gap-2 px-8 py-3.5 bg-indigo-600 text-white rounded-2xl font-bold text-[14px] hover:bg-indigo-700 transition-all shadow-[0_10px_25px_-5px_rgba(99,102,241,0.4)] active:scale-[0.98] disabled:opacity-50 cursor-pointer">
+                                        <CheckCircle size={18} /> {submitting ? 'Saving...' : 'Save GRN & Update Stock'}
+                                    </button>
+                                </div>
+                            </div>
+
+                        </form>
+
+                        <datalist id="generic-names-list">
+                            {uniqueGenericNames.map((name, idx) => (
+                                <option key={idx} value={name} />
+                            ))}
+                        </datalist>
+
+                    </div>
+                </div>,
+                document.body
+            )}
+        </PharmacistLayout>
+    );
+}
