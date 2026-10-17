@@ -43,7 +43,8 @@ const ADMIN_LINKS = [
     { to: '/admin/prescriptions', label: 'Prescriptions', icon: FileText },
     { to: '/pos', label: 'POS Billing', icon: ShoppingCart },
     { to: '/admin/nmra-logs', label: 'NMRA Logs', icon: ShieldAlert },
-    { to: '/admin/ai-outbreak', label: 'AI Outbreak Radar', icon: Radar }
+    { to: '/admin/ai-outbreak', label: 'AI Outbreak Radar', icon: Radar },
+    { to: '/admin/reports', label: 'Reports', icon: FileText }
 ];
 
 export default function AdminLayout({ children }) {
