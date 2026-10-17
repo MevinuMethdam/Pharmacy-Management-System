@@ -4,7 +4,10 @@ import React, {
     useRef,
     useState,
 } from 'react';
+import { useNavigate } from 'react-router-dom';
 
+// One shared monitor, even if React StrictMode remounts the component.
+// No network calls, request bodies, credentials, or input values are created/read.
 const MONITOR_KEY = Symbol.for('pharmacy-bot.auto-monitor.v1');
 const MAX_JSON_BYTES = 65536;
 
@@ -23,6 +26,7 @@ function envelopeMood(value) {
     return null;
 }
 
+// Inspect only small JSON response copies; do not consume the application's body.
 async function inspectFetchResponse(response) {
     if (!response.ok && response.type !== 'opaque') return 'error';
     const type = response.headers.get('content-type') || '';
@@ -136,6 +140,7 @@ function createAutomaticBotMonitor() {
 
     const originalFetch = window.fetch;
     function wrappedFetch(...args) {
+        // Preserve the original returned promise and original errors.
         if (disposed) return Reflect.apply(originalFetch, this, args);
         const info = requestInfo(args[0], args[1]);
         const finish = info.track ? begin() : null;
@@ -145,6 +150,8 @@ function createAutomaticBotMonitor() {
         if (finish) {
             promise.then(response => {
                 inspectFetchResponse(response).then(mood => {
+                    // Generic GET success is not a completed user operation.
+                    // 202 means accepted, not completed.
                     finish(mood || (info.mutation && response.ok && response.status !== 202 ? 'success' : null));
                 }, () => finish(null));
             }, error => finish(error?.name === 'AbortError' ? null : 'error')).catch(() => {});
@@ -197,6 +204,7 @@ function createAutomaticBotMonitor() {
     }
     if (proto) { proto.open = wrappedOpen; proto.send = wrappedSend; }
 
+    // Existing toast libraries and accessible alerts need no added attributes.
     const notices = '[role="alert"],[role="status"],[data-sonner-toast],.Toastify__toast,.ant-message-notice-content,.ant-notification-notice,.swal2-popup,.MuiAlert-root';
     const visible = element => element.isConnected && !element.closest('[hidden],[aria-hidden="true"]') &&
         element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden' &&
@@ -231,6 +239,7 @@ function createAutomaticBotMonitor() {
         else if (!busy && wasBusy && !pending) emit(failed ? 'error' : succeeded ? 'success' : 'idle');
     };
     const scheduleScan = records => {
+        // Ignore our own animation and eye updates.
         if (records && records.every(record => {
             const e = record.target instanceof Element ? record.target : record.target.parentElement;
             return e?.closest('.pharmacist-bot');
@@ -252,6 +261,7 @@ function createAutomaticBotMonitor() {
             document.removeEventListener('input', interact, true);
             document.removeEventListener('submit', interact, true);
             removers.forEach(remove => remove());
+            // Never overwrite an interceptor installed after this monitor.
             if (window.fetch === wrappedFetch) window.fetch = originalFetch;
             if (proto?.open === wrappedOpen) proto.open = originalOpen;
             if (proto?.send === wrappedSend) proto.send = originalSend;
@@ -259,7 +269,9 @@ function createAutomaticBotMonitor() {
     };
 }
 
-const RADAR_URL = '../pages/admin/AIOutbreakRadar';
+
+// Matches the Admin-only AIOutbreakRadar route in AppRoutes.
+const RADAR_URL = '/admin/ai-outbreak';
 
 const BOT_EVENT = 'pharmacy-bot';
 
@@ -283,6 +295,7 @@ const PRIORITY = {
     error: 4,
 };
 
+// Optional backward-compatible helper. Automatic monitoring requires no calls.
 export function pharmacyBot(type, duration) {
     if (typeof window === 'undefined' || !MOODS.has(type)) return;
 
@@ -297,6 +310,7 @@ const TrackingChatbot = ({
                              size = 128,
                              className = '',
                          }) => {
+    const navigate = useNavigate();
     const containerRef = useRef(null);
     const activeMoodRef = useRef('idle');
     const pendingRef = useRef(0);
@@ -324,6 +338,7 @@ const TrackingChatbot = ({
     const isError = mood === 'error';
     const isCurious = mood === 'curious';
 
+    // Cursor tracking and automatic UI reactions.
     useEffect(() => {
         let frame = null;
         let typingTimer;
@@ -336,6 +351,7 @@ const TrackingChatbot = ({
         ) => {
             if (!MOODS.has(type)) return;
 
+            // Ordinary clicks must not interrupt loading or a result.
             if (
                 !explicit &&
                 PRIORITY[activeMoodRef.current] > PRIORITY[type]
@@ -348,6 +364,7 @@ const TrackingChatbot = ({
             activeMoodRef.current = type;
             setActivity(type);
 
+            // Keep loading until the application reports a result.
             if (type === 'loading' || type === 'idle') return;
 
             const defaultDuration =
@@ -370,6 +387,7 @@ const TrackingChatbot = ({
 
         const unsubscribeAutomatic = subscribeAutomaticBot(({ type, pending }) => {
             pendingRef.current = pending;
+            // Do not erase a fresh result when a busy indicator disappears.
             if (type === 'idle' && ['success', 'error'].includes(activeMoodRef.current)) return;
             if (type === 'loading' && ['success', 'error'].includes(activeMoodRef.current)) return;
             reactToActivity(type, undefined, true);
@@ -432,6 +450,7 @@ const TrackingChatbot = ({
                 return;
             }
 
+            // Look at the actual clicked control, including sidebar navigation.
             if (control) watchControl(control, 1700);
 
             const requestedMood = target
@@ -454,6 +473,7 @@ const TrackingChatbot = ({
 
             const target = getElement(event);
             if (!target?.matches('input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="button"]):not([type="submit"]), textarea, [contenteditable]:not([contenteditable="false"])')) return;
+            // Hold narrowed eyes while typing, including during live-search requests.
             setIsTyping(true);
             window.clearTimeout(typingTimer);
             typingTimer = window.setTimeout(() => setIsTyping(false), 1500);
@@ -533,6 +553,7 @@ const TrackingChatbot = ({
         };
     }, []);
 
+    // Natural random blinking with timer cleanup.
     useEffect(() => {
         let closeTimer;
         let openTimer;
@@ -568,7 +589,7 @@ const TrackingChatbot = ({
                 className={`pharmacist-bot ${className}`}
                 data-mood={mood}
                 aria-label="Open AI Outbreak Radar"
-                onClick={() => window.location.assign(RADAR_URL)}
+                onClick={() => navigate(RADAR_URL)}
                 onPointerEnter={(event) => {
                     if (event.pointerType !== 'touch') {
                         setHovered(true);
@@ -666,6 +687,7 @@ const TrackingChatbot = ({
                             </defs>
 
                             <g className="pb-pose">
+                                {/* Left coat sleeve and hand */}
                                 <g className="pb-left-arm">
                                     <path
                                         d="M47 67C40 67 31 78 27 87
@@ -688,6 +710,7 @@ const TrackingChatbot = ({
                                     />
                                 </g>
 
+                                {/* Right coat sleeve and hand */}
                                 <g className="pb-right-arm">
                                     <path
                                         d="M80 68C88 70 96 81 100 89
@@ -710,8 +733,10 @@ const TrackingChatbot = ({
                                     />
                                 </g>
 
+                                {/* Navy shirt covers the neck and the full torso. */}
                                 <path d="M54 56H74L77 72H51Z" fill="#112D62" />
 
+                                {/* Full-length white coat: closed lower front, no visible feet. */}
                                 <path
                                     d="M50 65Q64 59 78 65
                                        C85 76 87 94 88 109
@@ -729,6 +754,7 @@ const TrackingChatbot = ({
                                        H55L50 84Z"
                                     fill="#153A77" stroke="#102C60" strokeWidth="1"
                                 />
+                                {/* Dark blue folded shirt collar and button placket. */}
                                 <path d="M54 62L64 67L58 77L51 68Z"
                                       fill="#214B8B" stroke="#5274A8" strokeWidth=".8" />
                                 <path d="M74 62L64 67L70 77L77 68Z"
@@ -737,6 +763,7 @@ const TrackingChatbot = ({
                                 <circle cx="64" cy="79" r=".9" fill="#9EBCDF" />
                                 <circle cx="64" cy="88" r=".9" fill="#9EBCDF" />
 
+                                {/* White front panels overlap below the visible shirt. */}
                                 <path
                                     d="M51 65L56 71L60 87L65 100L64 131
                                        Q45 134 29 128Q39 120 40 108
@@ -749,12 +776,14 @@ const TrackingChatbot = ({
                                        C87 90 84 74 77 65Z"
                                     fill={`url(#${coat})`} stroke="#CFDCEB" strokeWidth="1"
                                 />
+                                {/* Soft folds and gently spread trailing hem. */}
                                 <path d="M45 111Q44 121 39 127M83 111Q85 122 90 127
                                          M57 117L55 129M73 117L76 130"
                                       stroke="#D7E2EF" strokeWidth="1.2" strokeLinecap="round" />
                                 <path d="M33 128Q45 131 55 130M73 131Q86 132 94 128"
                                       stroke="#FFFFFF" strokeWidth="1.6" strokeLinecap="round" />
 
+                                {/* Coat lapels */}
                                 <path
                                     d="M53 65L61 69L58 86L50 77
                                        L54 74L50 71Z"
@@ -768,6 +797,7 @@ const TrackingChatbot = ({
                                     stroke="#D1DFED"
                                 />
 
+                                {/* Pockets */}
                                 <path
                                     d="M46 97H55V103Q50.5 107 46 103Z"
                                     fill="#EFF6FC"
@@ -779,6 +809,7 @@ const TrackingChatbot = ({
                                     stroke="#CDDBE9"
                                 />
 
+                                {/* Pharmacy badge */}
                                 <rect
                                     x="74"
                                     y="81"
@@ -809,6 +840,7 @@ const TrackingChatbot = ({
                                     fill="#A8BCD0"
                                 />
 
+                                {/* Stethoscope */}
                                 <path
                                     d="M55 66C52 69 51 74 52 80
                                        M72 66C75 69 75 74 74 80"
@@ -999,6 +1031,7 @@ const TrackingChatbot = ({
                                         )}
                                     </g>
 
+                                    {/* Headset microphone */}
                                     <path
                                         d="M31 33C23 38 23 49 29 53
                                            C33 55 38 55 43 54"
@@ -1031,6 +1064,7 @@ const TrackingChatbot = ({
                                 </g>
                             </g>
 
+                            {/* Loading indicator */}
                             {mood === 'loading' && (
                                 <g
                                     className="pb-loading-dots"
@@ -1042,6 +1076,7 @@ const TrackingChatbot = ({
                                 </g>
                             )}
 
+                            {/* Success sparkles */}
                             {mood === 'success' && (
                                 <g
                                     stroke="#37B8C7"
