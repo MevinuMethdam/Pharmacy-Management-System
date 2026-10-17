@@ -46,7 +46,7 @@ const isValidFormatAndLimits = (loc) => {
     const b = parseInt(match[3], 10);
 
     return r >= 1 && r <= 20 &&
-        s >= 1 && s <= 10 &&
+        s >= 1 && s <= 5 &&
         b >= 1 && b <= 10;
 };
 
@@ -56,12 +56,12 @@ const cleanRackFormat = (loc) => {
 };
 
 const toAbsoluteBin = (r, s, b) => {
-    return (r - 1) * 100 + (s - 1) * 10 + (b - 1);
+    return (r - 1) * 50 + (s - 1) * 10 + (b - 1);
 };
 
 const fromAbsToString = (abs) => {
-    const r = Math.floor(abs / 100) + 1;
-    const rem = abs % 100;
+    const r = Math.floor(abs / 50) + 1;
+    const rem = abs % 50;
     const s = Math.floor(rem / 10) + 1;
     const b = (rem % 10) + 1;
 
@@ -86,7 +86,7 @@ const generateSmartRackLocation = (allMedicines) => {
 
             if (
                 r >= 1 && r <= 20 &&
-                s >= 1 && s <= 10 &&
+                s >= 1 && s <= 5 &&
                 b >= 1 && b <= 10
             ) {
                 const startAbs = toAbsoluteBin(r, s, b);
@@ -103,7 +103,7 @@ const generateSmartRackLocation = (allMedicines) => {
     });
 
     let nextAbsBin = maxAbsBin + 1;
-    if (nextAbsBin > 1999) nextAbsBin = 1999;
+    if (nextAbsBin > 999) nextAbsBin = 999;
 
     return fromAbsToString(nextAbsBin);
 };
@@ -130,7 +130,7 @@ const calculateBinSpan = (startLoc, qty) => {
     }
 
     let endAbs = startAbs + binsNeeded - 1;
-    if (endAbs > 1999) endAbs = 1999;
+    if (endAbs > 999) endAbs = 999;
 
     const endLoc = fromAbsToString(endAbs);
 
@@ -159,8 +159,8 @@ const getRackError = (loc, currentQty, editingId, medicines) => {
         return 'Invalid Rack! Maximum 20 Racks allowed.';
     }
 
-    if (shelf < 1 || shelf > 10) {
-        return 'Invalid Shelf! Maximum 10 Shelves per rack allowed.';
+    if (shelf < 1 || shelf > 5) {
+        return 'Invalid Shelf! Maximum 5 Shelves per rack allowed.';
     }
 
     if (bin < 1 || bin > 10) {
@@ -173,7 +173,7 @@ const getRackError = (loc, currentQty, editingId, medicines) => {
     );
     const reqEndAbs = reqStartAbs + reqBinsTaken - 1;
 
-    if (reqEndAbs > 1999) {
+    if (reqEndAbs > 999) {
         return `Quantity requires ${reqBinsTaken} bins, which exceeds max pharmacy capacity!`;
     }
 
@@ -191,7 +191,7 @@ const getRackError = (loc, currentQty, editingId, medicines) => {
 
             if (
                 mr >= 1 && mr <= 20 &&
-                ms >= 1 && ms <= 10 &&
+                ms >= 1 && ms <= 5 &&
                 mb >= 1 && mb <= 10
             ) {
                 const mStartAbs = toAbsoluteBin(mr, ms, mb);
@@ -355,7 +355,7 @@ export default function InventoryPage() {
 
                                 <p className="mt-3 text-[10px] text-emerald-600 font-bold flex items-center gap-1">
                                     <CheckCircle size={12} />
-                                    Email Alert Sent to Admin & Supplier
+                                    System Alert Sent to Admin
                                 </p>
                             </div>
                         </div>
@@ -376,16 +376,7 @@ export default function InventoryPage() {
             });
 
             const medsWithSuppliers = lowStockMeds.map(m => {
-                const sId =
-                    m.supplierId ||
-                    map[String(m.id)] ||
-                    map[String(m.name).toLowerCase()];
-
-                const supplier = sups.find(s =>
-                    String(s.id) === String(sId)
-                );
-
-                return { ...m, supplier };
+                return { ...m, supplier: null };
             });
 
             axios.post(
@@ -2035,7 +2026,7 @@ export default function InventoryPage() {
                                             </div>
                                         ) : (
                                             <p className="text-[9px] text-sky-600 font-bold mt-1 ml-1 leading-tight">
-                                                Limits: 20 Racks | 10 Shelves (පේළි) | 10 Bins (ඉඩ)
+                                                Limits: 20 Racks | 5 Shelves (පේළි) | 10 Bins (ඉඩ)
                                             </p>
                                         )}
                                     </div>
