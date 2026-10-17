@@ -7,7 +7,7 @@ exports.addMedicine = async (req, res) => {
         const {
             name, genericName, category, batchNumber, quantity, costPrice, sellingPrice,
             expiryDate, minStockLevel, manufacturer, isControlled,
-            supplierId, dosage, barcode, rackLocation
+            supplierId, dosage, barcode, rackLocation, rejectionReason
         } = req.body;
 
         if (!name || !batchNumber || !quantity || !sellingPrice || !expiryDate) {
@@ -30,7 +30,8 @@ exports.addMedicine = async (req, res) => {
             supplierId: supplierId || null,
             dosage: dosage || '',
             barcode: barcode || '',
-            rackLocation: rackLocation || ''
+            rackLocation: rackLocation || '',
+            rejectionReason: rejectionReason || null
         });
 
         res.status(201).json({ message: 'Medicine added successfully!', medicine: newMedicine });
@@ -71,7 +72,7 @@ exports.updateMedicine = async (req, res) => {
         const {
             name, genericName, category, batchNumber, quantity, costPrice, sellingPrice,
             expiryDate, minStockLevel, manufacturer, isControlled,
-            supplierId, dosage, barcode, rackLocation
+            supplierId, dosage, barcode, rackLocation, rejectionReason // Added rejectionReason
         } = req.body;
 
         const medicine = await Medicine.findByPk(id);
@@ -93,7 +94,8 @@ exports.updateMedicine = async (req, res) => {
             supplierId: supplierId || medicine.supplierId,
             dosage: dosage || medicine.dosage,
             barcode: barcode || medicine.barcode,
-            rackLocation: rackLocation || medicine.rackLocation
+            rackLocation: rackLocation || medicine.rackLocation,
+            rejectionReason: rejectionReason !== undefined ? rejectionReason : medicine.rejectionReason
         });
 
         res.status(200).json({ message: 'Medicine updated successfully!', medicine });
