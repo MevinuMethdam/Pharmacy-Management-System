@@ -10,14 +10,26 @@ exports.createPurchase = async (req, res) => {
     const t = await sequelize.transaction();
 
     try {
-        const { invoiceNumber, grnNumber, supplierId, invoiceDate, dueDate, totalAmount, notes, items } = req.body;
+        const {
+            invoiceNumber, grnNumber, supplierId,
+            invoiceDate, dueDate, totalAmount, paidAmount, paymentStatus, notes, items
+        } = req.body;
 
-        const invoice = await PurchaseInvoice.create({
-            invoiceNumber, grnNumber, supplierId, invoiceDate, dueDate, totalAmount, notes
-        }, { transaction: t });
+        if (!items || items.length === 0) {
+            throw new Error("Items array is required");
+        }
+
+        const supplier = await Supplier.findByPk(supplierId, { transaction: t });
+
+        const finalSupplierName = req.body.supplierName || (supplier ? supplier.companyName : null);
+        const finalNmraLicense = req.body.nmraLicense || (supplier ? (supplier.nmraLicense || supplier.brNumber) : null);
+
+        let processedItems = [];
 
         for (let item of items) {
             let actualMedicineId = item.medicineId;
+            let medName = item.name || 'Unknown';
+            let genName = item.genericName || '';
 
             if (!actualMedicineId || isNaN(actualMedicineId)) {
                 const newMedicine = await Medicine.create({
@@ -34,10 +46,15 @@ exports.createPurchase = async (req, res) => {
                     supplierId: supplierId,
                     isControlled: false
                 }, { transaction: t });
+
                 actualMedicineId = newMedicine.id;
+                medName = newMedicine.name;
+                genName = newMedicine.genericName;
             } else {
                 const medicine = await Medicine.findByPk(actualMedicineId, { transaction: t });
                 if (medicine) {
+                    medName = medicine.name;
+                    genName = medicine.genericName;
                     await medicine.update({
                         quantity: Number(medicine.quantity) + Number(item.quantity),
                         costPrice: item.costPrice,
@@ -46,20 +63,52 @@ exports.createPurchase = async (req, res) => {
                 }
             }
 
+            processedItems.push({
+                ...item,
+                actualMedicineId,
+                medName,
+                genName
+            });
+        }
+
+        const primaryItem = processedItems[0];
+
+        const invoice = await PurchaseInvoice.create({
+            invoiceNumber,
+            grnNumber,
+            supplierId,
+            supplierName: finalSupplierName,
+            nmraLicense: finalNmraLicense,
+            medicineId: primaryItem.actualMedicineId,
+            name: primaryItem.medName,
+            genericName: primaryItem.genName,
+            batchNumber: primaryItem.batchNumber,
+            expiryDate: primaryItem.expiryDate,
+            quantity: primaryItem.quantity,
+            unit: primaryItem.unit || 'Tablets',
+            costPrice: primaryItem.costPrice,
+            invoiceDate,
+            dueDate,
+            totalAmount,
+            paidAmount: paidAmount || 0.00,
+            paymentStatus: paymentStatus || 'Unpaid',
+            notes
+        }, { transaction: t });
+
+        for (let pItem of processedItems) {
             await PurchaseItem.create({
                 purchaseInvoiceId: invoice.id,
-                medicineId: actualMedicineId,
-                batchNumber: item.batchNumber,
-                expiryDate: item.expiryDate,
-                quantity: item.quantity,
-                unit: item.unit || 'Tablets',
-                costPrice: item.costPrice,
-                sellingPrice: item.sellingPrice,
-                subtotal: item.subtotal
+                medicineId: pItem.actualMedicineId,
+                batchNumber: pItem.batchNumber,
+                expiryDate: pItem.expiryDate,
+                quantity: pItem.quantity,
+                unit: pItem.unit || 'Tablets',
+                costPrice: pItem.costPrice,
+                sellingPrice: pItem.sellingPrice,
+                subtotal: pItem.subtotal
             }, { transaction: t });
         }
 
-        const supplier = await Supplier.findByPk(supplierId, { transaction: t });
         if (supplier) {
             await supplier.update({
                 totalOutstanding: Number(supplier.totalOutstanding) + Number(totalAmount)
