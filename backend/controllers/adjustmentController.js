@@ -43,10 +43,13 @@ exports.processStockAdjustment = async (req, res) => {
             }, { transaction: t });
         }
 
-        await medicine.destroy({ transaction: t });
+        await medicine.update({ quantity: 0 }, { transaction: t });
 
         await t.commit();
-        res.status(200).json({ message: actionType === 'return' ? 'Debit Note Created!' : 'Disposed Successfully!', totalValue });
+        res.status(200).json({
+            message: actionType === 'return' ? 'Debit Note Created!' : 'Disposed Successfully!',
+            totalValue
+        });
     } catch (error) {
         await t.rollback();
         console.error("Adjustment Error:", error);
