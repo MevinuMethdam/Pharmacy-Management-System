@@ -184,3 +184,39 @@ exports.setupPassword = async (req, res) => {
         res.status(500).json({ error: 'Failed to securely set up password.' });
     }
 };
+
+exports.changePassword = async (req, res) => {
+    try {
+        if (!req.user || req.user.role !== 'Supplier' || !req.user.supplierId) {
+            return res.status(403).json({ error: 'Supplier access is required.' });
+        }
+        const { currentPassword, newPassword, confirmPassword } = req.body || {};
+        if (typeof currentPassword !== 'string' || !currentPassword ||
+            typeof newPassword !== 'string' || typeof confirmPassword !== 'string') {
+            return res.status(400).json({ error: 'Please fill all password fields.' });
+        }
+        if (newPassword.length < 8 || Buffer.byteLength(newPassword, 'utf8') > 72) {
+            return res.status(400).json({ error: 'New password must have at least 8 characters and be no more than 72 UTF-8 bytes.' });
+        }
+        if (newPassword !== confirmPassword) {
+            return res.status(400).json({ error: 'New passwords do not match.' });
+        }
+        const supplier = await Supplier.findByPk(req.user.supplierId);
+        if (!supplier || !supplier.password || !await bcrypt.compare(currentPassword, supplier.password)) {
+            return res.status(400).json({ error: 'Current password is incorrect.' });
+        }
+        if (await bcrypt.compare(newPassword, supplier.password)) {
+            return res.status(400).json({ error: 'New password must be different from the current password.' });
+        }
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        const [updated] = await Supplier.update({ password: hashedPassword }, {
+            where: { id: supplier.id, password: supplier.password }
+        });
+        if (!updated) {
+            return res.status(409).json({ error: 'Password changed during this request. Please try again with your current password.' });
+        }
+        return res.status(200).json({ message: 'Password updated successfully.' });
+    } catch (err) {
+        return res.status(500).json({ error: 'Failed to update password. Please try again.' });
+    }
+};
