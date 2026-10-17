@@ -1,6 +1,7 @@
 const nodemailer = require('nodemailer');
 const Notification = require('../models/Notification');
 const Supplier = require('../models/Supplier');
+const restockController = require('./restockController');
 
 exports.getUnreadNotifications = async (req, res) => {
     try {
@@ -21,6 +22,88 @@ exports.markAsRead = async (req, res) => {
         res.status(200).json({ message: 'Notification marked as read' });
     } catch (error) {
         res.status(500).json({ error: 'Failed to update notification' });
+    }
+};
+
+exports.triggerStockRequestEmails = async (req, res) => {
+    try {
+        let { medicine, supplier } = req.body;
+        let linkedRequest = null;
+        if (req.body.purchaseItemId) {
+            linkedRequest = await restockController.prepareRequest(req.body);
+            medicine = linkedRequest.medicine;
+            supplier = linkedRequest.supplier;
+        }
+        if (!medicine) return res.status(400).json({ error: "Missing medicine data" });
+
+        res.status(202).json({ message: 'Stock request processing in background.' });
+
+        (async () => {
+            try {
+                let transporter = nodemailer.createTransport({
+                    service: 'gmail',
+                    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+                });
+
+                const adminNotif = await Notification.create({
+                    title: 'Stock Refill Requested 📦',
+                    message: `Requested stock refill for ${medicine.name} from ${supplier ? supplier.companyName : 'Supplier'}.`,
+                    isRead: false
+                });
+
+                const io = req.app.get('io');
+                if (io) {
+                    io.emit('receive_notification', { ...adminNotif.toJSON(), target: 'admin' });
+
+                    if (supplier) {
+                        const supplierNotif = linkedRequest ? null : await Notification.create({
+                            title: `[SUP:${supplier.id}] Stock Refill Request 📦`,
+                            message: `Kegalle Ph4Life has requested a stock refill for ${medicine.name} (Batch: ${medicine.batchNumber || 'N/A'}). Quantity Needed: ${medicine.quantity}`,
+                            isRead: false
+                        });
+
+                        io.emit('receive_notification', {
+                            ...(linkedRequest ? linkedRequest.supplierNotification : supplierNotif.toJSON()),
+                            title: 'Stock Refill Request 📦',
+                            type: 'info',
+                            target: 'supplier',
+                            supplierId: supplier.id,
+                            time: new Date()
+                        });
+                    }
+                }
+
+                const targetEmail = supplier?.email || supplier?.supplierEmail;
+                if (targetEmail) {
+                    const mailOptions = {
+                        from: process.env.EMAIL_USER,
+                        to: targetEmail,
+                        subject: `Urgent: Stock Refill Request for ${medicine.name}`,
+                        html: `
+                            <div style="font-family: Arial, sans-serif; max-w: 600px; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+                                <h2 style="color: #10b981;">Stock Refill Request (Kegalle Ph4Life)</h2>
+                                <p>Dear ${supplier.companyName},</p>
+                                <p>Our pharmacy is officially requesting a stock refill for the following medicine. Please prepare a new purchase order.</p>
+                                <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+                                    <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Medicine:</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${medicine.name} ${medicine.dosage ? `(${medicine.dosage})` : ''}</td></tr>
+                                    <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Batch No:</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${medicine.batchNumber || 'N/A'}</td></tr>
+                                    <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Requested Qty:</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd; color: #10b981; font-size: 16px;"><b>${medicine.quantity}</b></td></tr>
+                                    <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Expiry Date:</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>${medicine.expiryDate ? medicine.expiryDate.split('T')[0] : 'N/A'}</b></td></tr>
+                                    <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Selling Price:</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">LKR ${medicine.sellingPrice}</td></tr>
+                                    <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Minimum Alert Level:</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${medicine.minStockLevel}</td></tr>
+                                </table>
+                                <p style="margin-top: 20px; color: #64748b; font-size: 12px;">We will contact you shortly to finalize the quantities. Thank you for your continued support.</p>
+                            </div>
+                        `
+                    };
+                    await transporter.sendMail(mailOptions);
+                }
+            } catch (err) {
+                console.error("[Background Job] Request Stock Email Error: ", err);
+            }
+        })();
+    } catch (error) {
+        res.status(error.status || 500).json({ error: error.status ? error.message : 'Failed to process stock request notification' });
     }
 };
 
@@ -67,7 +150,7 @@ exports.triggerExpiryEmails = async (req, res) => {
                             else if (activeThreshold === 60 || activeThreshold === 30) { alertTag = 'Critical Warning'; alertEmoji = '🔴'; }
                             else if (activeThreshold === 0) { alertTag = 'Expired'; alertEmoji = '☠️'; }
 
-                            const exactMessage = `${identifier} - ${alertTag} ${alertEmoji}. Current days left: ${diffDays}. Qty in stock: ${m.quantity}.`;
+                            const exactMessage = `${identifier}\n${alertTag} ${alertEmoji}. Current days left: ${diffDays}. Qty in stock: ${m.quantity}.`;
                             let title = `Expiry Alert: ${m.name} is in the ${activeThreshold}-day window!`;
                             if (activeThreshold === 0) title = `URGENT: ${m.name} has EXPIRED! ☠️`;
 
@@ -137,11 +220,16 @@ exports.triggerExpiryEmails = async (req, res) => {
                                     </div>`;
                                 }
 
+                                const supplierNotif = await Notification.create({
+                                    title: `[SUP:${supplier.id}] Expiry Alert: ${m.name}`,
+                                    message: `Your product ${m.name} (Batch: ${m.batchNumber}) is expiring in ${diffDays} days. ${isWithinReturnWindow ? 'It is within your Return Window.' : ''}`,
+                                    isRead: false
+                                });
+
                                 if (io) {
                                     io.emit('receive_notification', {
-                                        id: `sup_exp_${Date.now()}_${m.id}`,
+                                        ...supplierNotif.toJSON(),
                                         title: `Expiry Alert: ${m.name}`,
-                                        message: `Your product ${m.name} (Batch: ${m.batchNumber}) is expiring in ${diffDays} days. ${isWithinReturnWindow ? 'It is within your Return Window.' : ''}`,
                                         type: 'warning',
                                         target: 'supplier',
                                         supplierId: supplier.id,
@@ -225,10 +313,15 @@ exports.triggerLowStockEmails = async (req, res) => {
                                 io.emit('receive_notification', { ...newNotification.toJSON(), target: 'admin' });
 
                                 if (m.supplier) {
-                                    io.emit('receive_notification', {
-                                        id: `sup_low_${Date.now()}`,
-                                        title: 'Low Stock Auto-Order Request 📉',
+                                    const supLowNotif = await Notification.create({
+                                        title: `[SUP:${m.supplier.id}] Low Stock Auto-Order Request 📉`,
                                         message: `Kegalle Ph4Life is running low on ${m.name}. Please prepare for a new purchase order.`,
+                                        isRead: false
+                                    });
+
+                                    io.emit('receive_notification', {
+                                        ...supLowNotif.toJSON(),
+                                        title: 'Low Stock Auto-Order Request 📉',
                                         type: 'warning',
                                         target: 'supplier',
                                         supplierId: m.supplier.id,
@@ -306,10 +399,15 @@ exports.triggerReturnEmails = async (req, res) => {
                     io.emit('receive_notification', { ...adminNotif.toJSON(), target: 'admin' });
 
                     if (supplier) {
-                        io.emit('receive_notification', {
-                            id: `sup_ret_${Date.now()}`,
-                            title: 'Debit Note & Return Notification 📦',
+                        const supRetNotif = await Notification.create({
+                            title: `[SUP:${supplier.id}] Debit Note & Return Notification 📦`,
                             message: `Kegalle Ph4Life has returned ${medicine.quantity} units of ${medicine.name}. A Debit Note has been applied.`,
+                            isRead: false
+                        });
+
+                        io.emit('receive_notification', {
+                            ...supRetNotif.toJSON(),
+                            title: 'Debit Note & Return Notification 📦',
                             type: 'warning',
                             target: 'supplier',
                             supplierId: supplier.id,
