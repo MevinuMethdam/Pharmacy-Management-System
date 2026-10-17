@@ -93,12 +93,10 @@ exports.createPrescription = async (req, res) => {
             doctorName,
             doctorSpecialization,
             doctorContactNumber,
-
             medicineIds: medIds.join(','),
             medicineNames: medNames.join(','),
             quantities: medQts.join(','),
             dosageInstructions: medDosages.join(' || '),
-
             prescriptionDate,
             status: status || 'Pending',
             digitalCopyUrl,
@@ -185,6 +183,8 @@ exports.scanPrescriptionAI = async (req, res) => {
             Use exactly this format:
             {
                 "patient": "Extracted Patient Name or Unknown",
+                "nic": "Extracted NIC or null",
+                "contactNumber": "Extracted Contact Number or null",
                 "doctor": "Extracted Doctor Name or Unknown",
                 "medicines": [
                     {
