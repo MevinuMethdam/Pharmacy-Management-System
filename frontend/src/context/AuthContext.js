@@ -23,7 +23,7 @@ export const AuthProvider = ({ children }) => {
         setUser(userData);
 
         if (userData.role === 'Admin') navigate('/admin');
-        else if (userData.role === 'Pharmacist') navigate('/pharmacist');
+        else if (userData.role === 'Pharmacist') navigate('/pharmacist/dashboard');
         else navigate('/cashier');
     };
 
