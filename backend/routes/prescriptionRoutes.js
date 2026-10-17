@@ -7,6 +7,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 router.get('/', prescriptionController.getAllPrescriptions);
 router.post('/', prescriptionController.createPrescription);
+router.post('/scan', upload.single('prescription'), prescriptionController.scanPrescriptionAI);
 router.put('/:id', prescriptionController.updatePrescription);
 router.delete('/:id', prescriptionController.deletePrescription);
 
