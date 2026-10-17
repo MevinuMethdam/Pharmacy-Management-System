@@ -73,6 +73,10 @@ const Medicine = sequelize.define('Medicine', {
     rackLocation: {
         type: DataTypes.STRING,
         allowNull: true
+    },
+    rejectionReason: {
+        type: DataTypes.TEXT,
+        allowNull: true
     }
 
 }, {
