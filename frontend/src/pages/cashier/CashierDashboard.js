@@ -263,7 +263,7 @@ export default function CashierDashboard() {
                             <div className="flex items-center gap-6">
                                 <span className="text-[28px] font-black italic text-[#7c83c2] w-24 text-right tracking-tight">LKR</span>
                                 <div className="flex-1">
-                                    <h4 className="text-[14px] font-black italic text-[#1e293b] tracking-widest uppercase">Total Revenue</h4>
+                                    <h4 className="text-[14px] font-black italic text-[#1e293b] tracking-widest uppercase">Total Income</h4>
                                     <p className="text-[11px] font-bold italic text-slate-400 uppercase mt-1">{overallRev.toFixed(2)} Total Earned</p>
                                 </div>
                             </div>
@@ -294,7 +294,7 @@ export default function CashierDashboard() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div className="bg-white rounded-[28px] p-6 shadow-[0_4px_20px_-4px_rgba(148,163,184,0.15)] flex flex-col justify-between gap-4 transition-transform hover:-translate-y-1 min-h-[130px]">
                             <div className="flex items-center justify-between w-full">
-                                <span className="text-[12px] font-bold text-slate-500 uppercase tracking-wider">Today's Revenue</span>
+                                <span className="text-[12px] font-bold text-slate-500 uppercase tracking-wider">Today's Income</span>
                                 <CreditCard size={18} className="text-emerald-500" />
                             </div>
                             <span className="text-[28px] font-black text-[#1e293b] tracking-tight">LKR {totalRevenue.toFixed(2)}</span>
@@ -327,10 +327,10 @@ export default function CashierDashboard() {
                         <div className="flex justify-between items-end mb-8">
                             <div>
                                 <h2 className="text-[17px] font-bold text-[#1e293b] tracking-tight">Payment Analytics</h2>
-                                <p className="text-[13px] text-slate-500 mt-0.5 font-medium">Real-time daily revenue and expenditure breakdown</p>
+                                <p className="text-[13px] text-slate-500 mt-0.5 font-medium">Real-time daily income and expenditure breakdown</p>
                             </div>
                             <div className="flex items-center gap-4 text-[12px] font-medium text-slate-500">
-                                <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#0ea5e9]"></div>Revenue</div>
+                                <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#0ea5e9]"></div>Income</div>
                                 <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#99f6e4]"></div>Cost</div>
                             </div>
                         </div>
