@@ -8,6 +8,7 @@ import Login from '../pages/auth/Login';
 import ProtectedRoute from './ProtectedRoute';
 
 import AdminDashboard from '../pages/admin/AdminDashboard';
+import AdminReportsPage from '../pages/admin/AdminReportsPage';
 import InventoryPage from '../pages/admin/InventoryPage';
 import ReturnsDisposalsPage from '../pages/admin/ReturnsDisposalsPage';
 import SuppliersPage from '../pages/admin/SuppliersPage';
@@ -43,6 +44,7 @@ const POSWrapper = () => {
 const AppRoutes = () => {
     return (
         <Routes>
+            <Route path="/admin/reports" element={<ProtectedRoute allowedRoles={['Admin']}><AdminReportsPage /></ProtectedRoute>} />
             <Route path="/" element={<LandingPage />} />
 
             <Route path="/auth/login" element={<Login />} />
