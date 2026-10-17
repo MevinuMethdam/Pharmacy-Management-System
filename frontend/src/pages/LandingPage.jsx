@@ -23,6 +23,7 @@ import LandingChatbot from "../components/chatbot/LandingChatbot";
 
 import logoImage from "../assets/logo.png";
 import landingImage from "../assets/landing.png";
+import aiIntegrationImage from "../assets/ai-integration.png";
 
 const fadeUp = {
     hidden: { opacity: 0, y: 30 },
@@ -117,6 +118,19 @@ function SecondaryButton({ children, className = "", ...props }) {
     );
 }
 
+function scrollToSection(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const href = event.currentTarget.getAttribute("href");
+    if (!href || !href.startsWith("#")) return;
+    const section = document.getElementById(href.slice(1));
+    if (!section) return;
+    event.preventDefault();
+    section.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "start"
+    });
+}
+
 function Navbar({ logoSrc }) {
     const [open, setOpen] = useState(false);
     const links = [
@@ -137,7 +151,7 @@ function Navbar({ logoSrc }) {
 
                     <nav className="hidden items-center gap-8 lg:flex">
                         {links.map((l) => (
-                            <a key={l.label} href={l.href} className="text-[14px] font-bold text-slate-600 hover:text-blue-600 transition-colors">
+                            <a key={l.label} href={l.href} onClick={scrollToSection} className="text-[14px] font-bold text-slate-600 hover:text-blue-600 transition-colors">
                                 {l.label}
                             </a>
                         ))}
@@ -168,7 +182,7 @@ function Navbar({ logoSrc }) {
                             <div className="border-t border-slate-200/50 px-6 py-5 bg-white/50 backdrop-blur-md rounded-b-[2rem]">
                                 <div className="flex flex-col gap-4">
                                     {links.map((l) => (
-                                        <a key={l.label} href={l.href} onClick={() => setOpen(false)} className="text-[15px] font-bold text-slate-700">
+                                        <a key={l.label} href={l.href} onClick={(event) => { scrollToSection(event); setOpen(false); }} className="text-[15px] font-bold text-slate-700">
                                             {l.label}
                                         </a>
                                     ))}
@@ -239,7 +253,7 @@ function Hero() {
 
                         <motion.div variants={fadeUp} className="mt-8 flex flex-wrap items-center justify-center lg:justify-start gap-4">
                             <Link to="/auth/login"><PrimaryButton>Start Operations <ArrowRight size={16} strokeWidth={2}/></PrimaryButton></Link>
-                            <a href="#features"><SecondaryButton>Explore Platform</SecondaryButton></a>
+                            <a href="#features" onClick={scrollToSection}><SecondaryButton>Explore Platform</SecondaryButton></a>
                         </motion.div>
 
                         <motion.div variants={fadeUp} className="mt-10 flex items-center justify-center lg:justify-start gap-5 border-t border-slate-200/60 pt-5">
@@ -317,11 +331,10 @@ function Hero() {
 
 function Features() {
     return (
-        <section id="features" className="relative px-4 lg:px-8 py-32 bg-white">
+        <section id="features" style={{ scrollMarginTop: 100 }} className="relative px-4 lg:px-8 pt-32 pb-8 bg-white">
             <div className="mx-auto max-w-6xl">
                 <SectionHeading
                     align="center"
-                    eyebrow="The Platform"
                     title="Everything in its right place."
                     description="We stripped away the clutter. What remains is a powerful, focused set of tools in a stunning layout."
                 />
@@ -329,22 +342,26 @@ function Features() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <motion.div variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }} className="md:col-span-2 group relative overflow-hidden p-8 sm:p-10 rounded-[28px] bg-slate-50 border border-slate-100 hover:shadow-xl hover:shadow-blue-500/5 transition-all duration-500">
                         <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-blue-100 to-transparent rounded-full opacity-40 blur-3xl group-hover:scale-150 transition-transform duration-700" />
-                        <span className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm border border-slate-200 text-blue-600 group-hover:scale-110 transition-transform duration-500 relative z-10">
-                            <Package size={22} strokeWidth={2} />
-                        </span>
-                        <h3 className="text-[20px] font-bold text-slate-900 relative z-10">Intelligent Inventory</h3>
-                        <p className="mt-3 text-[15px] leading-relaxed text-slate-500 font-normal relative z-10 max-w-md">
-                            Real-time stock monitoring with automated low-stock and expiry risk detection. Never run out of critical medications again.
-                        </p>
+                        <div className="relative z-10 flex flex-col sm:flex-row md:flex-col lg:flex-row items-start lg:items-center gap-6">
+                            <div className="min-w-0 flex-1">
+                                <span className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm border border-slate-200 text-blue-600 group-hover:scale-110 transition-transform duration-500 relative z-10">
+                                    <Package size={22} strokeWidth={2} />
+                                </span>
+                                <h3 className="text-[20px] font-bold text-slate-900 relative z-10">Intelligent Inventory</h3>
+                                <p className="mt-3 text-[15px] leading-relaxed text-slate-500 font-normal relative z-10 max-w-md">
+                                    Real-time stock monitoring with automated low-stock and expiry risk detection. Never run out of critical medications again.
+                                </p>
+                            </div>
+                        </div>
                     </motion.div>
 
                     <motion.div variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }} className="group relative overflow-hidden p-8 rounded-[28px] bg-gradient-to-br from-blue-600 to-cyan-500 text-white hover:shadow-xl hover:shadow-blue-500/20 transition-all duration-500">
                         <span className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-md text-white group-hover:scale-110 group-hover:rotate-6 transition-transform duration-500">
                             <Radar size={22} strokeWidth={2} />
                         </span>
-                        <h3 className="text-[20px] font-bold">Background AI</h3>
+                        <h3 className="text-[20px] font-bold">Outbreak Intelligence</h3>
                         <p className="mt-3 text-[14.5px] leading-relaxed text-blue-50 font-normal">
-                            Subtle insights that surface only when you need to make critical decisions.
+                            Explore outbreak insights to support informed pharmacy decisions.
                         </p>
                     </motion.div>
 
@@ -370,6 +387,68 @@ function Features() {
                     </motion.div>
                 </div>
             </div>
+        </section>
+    );
+}
+
+function IntelligenceSection() {
+    return (
+        <section id="ai-intelligence" style={{ scrollMarginTop: 100 }} className="px-4 lg:px-8 py-8 bg-white">
+            <div className="mx-auto max-w-6xl grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
+                <motion.div variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }}>
+                    <span className="font-sans text-[20px] sm:text-[22px] font-bold tracking-tight bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">Intelligence</span>
+                    <h2 className="mt-4 text-[32px] sm:text-[40px] font-bold tracking-tight leading-[1.2] text-slate-900">
+                        Smarter support for everyday pharmacy work.
+                    </h2>
+                    <p className="mt-6 text-[16px] leading-relaxed text-slate-500">
+                        Kegalle Ph4Life brings AI-assisted support into the pharmacy workflow. Outbreak insights help teams stay informed, while the built-in chatbot provides a convenient way to ask questions and find guidance.
+                    </p>
+                    <p className="mt-4 text-[16px] leading-relaxed text-slate-500">
+                        Alongside these AI tools, stock and expiry alerts help teams notice items that need attention. Staff remain in control of the final decisions.
+                    </p>
+                </motion.div>
+                <motion.div variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }} className="flex items-center justify-center">
+                    <img
+                        src={aiIntegrationImage}
+                        alt="AI-assisted pharmacy management"
+                        loading="lazy"
+                        decoding="async"
+                        className="w-full max-w-[400px] h-auto object-contain"
+                    />
+                </motion.div>
+            </div>
+        </section>
+    );
+}
+
+function SecuritySection() {
+    return (
+        <section id="security" style={{ scrollMarginTop: 100 }} className="px-4 lg:px-8 pt-8 pb-12 bg-white">
+            <motion.div variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }} className="mx-auto max-w-6xl">
+                <span className="font-sans text-[20px] sm:text-[22px] font-bold tracking-tight bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">Security</span>
+                <h2 className="mt-4 max-w-2xl text-[32px] sm:text-[40px] font-bold tracking-tight leading-[1.2] text-slate-900">
+                    The right access for every role.
+                </h2>
+                <p className="mt-6 max-w-3xl text-[16px] leading-relaxed text-slate-500">
+                    Kegalle Ph4Life uses account sign-in and role-based access to separate the work of administrators, pharmacists, cashiers, and suppliers. Each team member works through the portal assigned to their responsibilities.
+                </p>
+                <div className="mt-10 grid sm:grid-cols-2 gap-8 sm:gap-12">
+                    <div>
+                        <ShieldCheck size={26} className="text-blue-600" strokeWidth={1.8} />
+                        <h3 className="mt-4 text-[18px] font-bold text-slate-900">An extra sign-in check</h3>
+                        <p className="mt-3 text-[15px] leading-relaxed text-slate-500">
+                            Email OTP verification adds a second step to administrator, pharmacist, and cashier sign-in, helping confirm access to the account email.
+                        </p>
+                    </div>
+                    <div>
+                        <HeartPulse size={26} className="text-cyan-600" strokeWidth={1.8} />
+                        <h3 className="mt-4 text-[18px] font-bold text-slate-900">Access based on responsibilities</h3>
+                        <p className="mt-3 text-[15px] leading-relaxed text-slate-500">
+                            Role-based permissions help limit access to patient records, prescriptions, stock, and sales functions to the staff who need them.
+                        </p>
+                    </div>
+                </div>
+            </motion.div>
         </section>
     );
 }
@@ -419,39 +498,57 @@ function FinalCTA() {
 
 function Footer({ logoSrc }) {
     return (
-        <footer className="px-4 lg:px-8 pt-20 pb-10 bg-white border-t border-slate-100">
-            <div className="mx-auto max-w-6xl">
-                <div className="flex flex-col md:flex-row justify-between items-start gap-12 pb-16">
-                    <div className="max-w-xs">
-                        <BrandLockup logoSrc={logoSrc} />
-                        <p className="mt-5 text-[14px] leading-relaxed text-slate-500 font-normal">
+        <footer
+            className="px-6 sm:px-10 lg:px-14 pt-12 lg:pt-16 pb-10 lg:pb-14"
+            style={{
+                fontFamily: 'Arial, Helvetica, sans-serif',
+                background: 'linear-gradient(110deg, #f3f8ff 0%, #f0fbff 30%, #ffffff 57%, #faf3ff 100%)'
+            }}
+        >
+            <div className="mx-auto max-w-7xl">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10 lg:gap-14 items-start">
+                    <div>
+                        <div className="flex items-center gap-2.5">
+                            {logoSrc ? (
+                                <img src={logoSrc} alt="Kegalle Ph4Life Logo" className="h-10 w-auto max-w-[44px] object-contain flex-shrink-0" />
+                            ) : (
+                                <BrandMark />
+                            )}
+                            <div className="whitespace-nowrap text-[24px] font-bold tracking-tight leading-none">
+                                <span className="text-slate-900">Kegalle </span>
+                                <span className="bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">Ph4Life</span>
+                            </div>
+                        </div>
+                        <p className="mt-4 max-w-[235px] text-[14px] leading-[22px] text-slate-600 font-normal">
                             Designed for modern pharmacy teams who value focus, security, and reliability above all else.
                         </p>
                     </div>
-                    <div className="flex flex-wrap gap-16">
-                        <div>
-                            <p className="text-[12px] font-bold text-slate-900 uppercase tracking-widest mb-5">Platform</p>
-                            <ul className="space-y-3.5">
-                                {["Features", "Intelligence", "Security", "Pricing"].map((l) => (
-                                    <li key={l}><a href={`#${l.toLowerCase()}`} className="text-[14px] font-medium text-slate-500 hover:text-blue-600 transition-colors">{l}</a></li>
-                                ))}
-                            </ul>
-                        </div>
-                        <div>
-                            <p className="text-[12px] font-bold text-slate-900 uppercase tracking-widest mb-5">System</p>
-                            <ul className="space-y-3.5">
-                                <li><Link to="/auth/login" className="text-[14px] font-medium text-slate-500 hover:text-blue-600 transition-colors">Sign In</Link></li>
-                                <li><a href="#support" className="text-[14px] font-medium text-slate-500 hover:text-blue-600 transition-colors">Support Portal</a></li>
-                                <li><a href="#docs" className="text-[14px] font-medium text-slate-500 hover:text-blue-600 transition-colors">Documentation</a></li>
-                            </ul>
+                    <div className="lg:pt-1">
+                        <p className="text-[16px] font-bold text-slate-800 mb-2">Platform</p>
+                        <ul className="space-y-2">
+                            {["Features", "Intelligence", "Security", "Pricing"].map((l) => (
+                                <li key={l}><a href={l === "Intelligence" ? "#ai-intelligence" : `#${l.toLowerCase()}`} onClick={scrollToSection} className="text-[14px] leading-5 font-normal text-slate-600 hover:text-blue-600 transition-colors">{l}</a></li>
+                            ))}
+                        </ul>
+                    </div>
+                    <div className="lg:pt-1">
+                        <p className="text-[16px] font-bold text-slate-800 mb-2">System</p>
+                        <ul className="space-y-2">
+                            <li><Link to="/auth/login" className="text-[14px] leading-5 font-normal text-slate-600 hover:text-blue-600 transition-colors">Sign In</Link></li>
+                            <li><a href="#support" className="text-[14px] leading-5 font-normal text-slate-600 hover:text-blue-600 transition-colors">Support Portal</a></li>
+                            <li><a href="#docs" className="text-[14px] leading-5 font-normal text-slate-600 hover:text-blue-600 transition-colors">Documentation</a></li>
+                        </ul>
+                    </div>
+                    <div className="lg:pt-1">
+                        <p className="text-[16px] font-bold text-slate-800 mb-2">Security</p>
+                        <div className="flex items-center gap-2 text-[14px] leading-5 font-normal text-slate-600">
+                            <ShieldCheck size={18} strokeWidth={1.8} className="flex-shrink-0 text-blue-600" />
+                            <span>256-bit Encrypted Platform</span>
                         </div>
                     </div>
                 </div>
-                <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-t border-slate-100 pt-8">
-                    <span className="text-[13px] text-slate-400 font-medium">© 2026 Kegalle Ph4Life. All rights reserved.</span>
-                    <div className="flex items-center gap-1.5 bg-blue-50/80 px-3 py-1.5 rounded-full text-blue-600 text-[12px] font-semibold border border-blue-100">
-                        <ShieldCheck size={14} strokeWidth={2} /> 256-bit Encrypted Platform
-                    </div>
+                <div className="mt-12 lg:mt-14 text-center">
+                    <span className="text-[14px] leading-5 text-slate-400 font-semibold">© 2026 Kegalle Ph4Life. All rights reserved.</span>
                 </div>
             </div>
         </footer>
@@ -464,6 +561,8 @@ export default function LandingPage() {
             <Navbar logoSrc={logoImage} />
             <Hero />
             <Features />
+            <IntelligenceSection />
+            <SecuritySection />
             <FinalCTA />
             <Footer logoSrc={logoImage} />
             <LandingChatbot />
