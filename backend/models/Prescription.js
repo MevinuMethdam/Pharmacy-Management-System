@@ -1,6 +1,5 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/db');
-const Doctor = require('./Doctor');
 const Customer = require('./Customer');
 
 const Prescription = sequelize.define('Prescription', {
@@ -9,22 +8,81 @@ const Prescription = sequelize.define('Prescription', {
         primaryKey: true,
         autoIncrement: true
     },
-    prescriptionDate: {
-        type: DataTypes.DATEONLY,
+
+    patientId: {
+        type: DataTypes.INTEGER,
         allowNull: false
     },
+    patientName: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    patientNic: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    patientAge: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+    },
+    patientGender: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    patientContactNumber: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+
+    doctorName: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    doctorSpecialization: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    doctorContactNumber: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+
+    medicineIds: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    medicineNames: {
+        type: DataTypes.TEXT,
+        allowNull: false,
+        defaultValue: ''
+    },
+    quantities: {
+        type: DataTypes.TEXT,
+        allowNull: false,
+        defaultValue: ''
+    },
+    dosageInstructions: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+
     status: {
         type: DataTypes.STRING,
         defaultValue: 'Pending'
     },
     digitalCopyUrl: {
-        type: DataTypes.STRING,
+        type: DataTypes.TEXT('long'),
         allowNull: true
     },
     notes: {
         type: DataTypes.TEXT,
         allowNull: true
+    },
+    prescriptionDate: {
+        type: DataTypes.DATEONLY,
+        allowNull: false
     }
+
 }, {
     tableName: 'prescriptions',
     timestamps: true
@@ -32,8 +90,5 @@ const Prescription = sequelize.define('Prescription', {
 
 Customer.hasMany(Prescription, { foreignKey: 'patientId', as: 'prescriptions' });
 Prescription.belongsTo(Customer, { foreignKey: 'patientId', as: 'patient' });
-
-Doctor.hasMany(Prescription, { foreignKey: 'doctorId', as: 'prescriptions' });
-Prescription.belongsTo(Doctor, { foreignKey: 'doctorId', as: 'doctor' });
 
 module.exports = Prescription;
