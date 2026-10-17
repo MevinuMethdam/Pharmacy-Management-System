@@ -5,6 +5,7 @@ import AdminLayout from '../../components/layout/AdminLayout';
 import { Receipt, Plus, Trash2, Calendar, FileText, Package, Search, X, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import io from 'socket.io-client';
 import api from '../../api/axiosInstance';
 import { inventoryApi } from '../../api/inventoryApi';
 
@@ -130,6 +131,36 @@ export default function PurchasesPage() {
 
         return () => {
             controller.abort();
+        };
+    }, []);
+
+    useEffect(() => {
+        const socket = io('http://localhost:5000');
+        const controller = new AbortController();
+        let sequence = 0;
+        const refreshPurchases = async () => {
+            const current = ++sequence;
+            try {
+                const { data } = await api.get('/purchases', { signal: controller.signal });
+                if (!controller.signal.aborted && current === sequence) setPurchases(data || []);
+            } catch (error) {
+                if (!controller.signal.aborted) console.error('Purchase refresh failed:', error);
+            }
+        };
+        const onVisible = () => { if (!document.hidden) refreshPurchases(); };
+        socket.on('purchase_updated', refreshPurchases);
+        socket.on('connect', refreshPurchases);
+        window.addEventListener('focus', refreshPurchases);
+        document.addEventListener('visibilitychange', onVisible);
+        const timer = window.setInterval(onVisible, 15000);
+        return () => {
+            controller.abort();
+            window.clearInterval(timer);
+            window.removeEventListener('focus', refreshPurchases);
+            document.removeEventListener('visibilitychange', onVisible);
+            socket.off('purchase_updated', refreshPurchases);
+            socket.off('connect', refreshPurchases);
+            socket.disconnect();
         };
     }, []);
 
