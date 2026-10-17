@@ -2,7 +2,7 @@ import React, { useState, useContext, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import { loginUser, verifyAdminOtp } from '../../services/authService';
-import { Mail, Lock, ShieldCheck, AlertCircle, UserCog, Activity, DollarSign, ArrowLeft } from 'lucide-react';
+import { Mail, Lock, ShieldCheck, AlertCircle, UserCog, Activity, DollarSign, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 
 import loginImage from '../../assets/login.png';
 import logoImage from '../../assets/logo.png';
@@ -19,6 +19,7 @@ export default function Login() {
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
@@ -32,10 +33,11 @@ export default function Login() {
 
             if (data.requiresOtp) {
                 setStep('otp');
-                toast.success('Admin Verified. OTP sent to pharmacy email! 📧');
+                toast.success('Credentials Verified. OTP sent to pharmacy email! 📧');
             } else {
                 login(data.user, data.token);
                 if (data.user.role === 'Cashier') navigate('/pos');
+                else if (data.user.role === 'Pharmacist') navigate('/pharmacist/dashboard');
                 else navigate('/admin');
             }
         } catch (err) {
@@ -91,21 +93,15 @@ export default function Login() {
         try {
             const data = await verifyAdminOtp(email, finalOtp);
             login(data.user, data.token);
-            toast.success('Admin Authentication Successful! 🎉');
-            navigate('/admin');
+            toast.success(`${data.user.role} Authentication Successful! 🎉`);
+            if (data.user.role === 'Cashier') navigate('/pos');
+            else if (data.user.role === 'Pharmacist') navigate('/pharmacist/dashboard');
+            else navigate('/admin');
         } catch (err) {
             setError(err.response?.data?.error || 'Invalid or expired OTP code.');
         } finally {
             setLoading(false);
         }
-    };
-
-    const handleDemoFill = (demoEmail, demoPassword) => {
-        setEmail(demoEmail);
-        setPassword(demoPassword);
-        setError('');
-        setStep('login');
-        setOtpValues(['', '', '', '', '', '']);
     };
 
     return (
@@ -152,7 +148,6 @@ export default function Login() {
                         <img src={logoImage} alt="Logo" className="w-full h-full object-contain" />
                     </div>
 
-
                     {step === 'login' ? (
                         <>
                             <div className="text-center mb-6 w-full flex-shrink-0 animate-in fade-in duration-300">
@@ -191,13 +186,22 @@ export default function Login() {
                                             <Lock size={16} className="text-slate-400 group-focus-within:text-sky-500 transition-colors" />
                                         </div>
                                         <input
-                                            type="password"
+                                            type={showPassword ? 'text' : 'password'}
                                             value={password}
                                             onChange={(e) => setPassword(e.target.value)}
-                                            className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all placeholder:text-slate-300 placeholder:font-normal tracking-widest"
+                                            className="w-full pl-10 pr-12 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all placeholder:text-slate-300 placeholder:font-normal tracking-widest"
                                             placeholder="••••••••"
                                             required
                                         />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword((visible) => !visible)}
+                                            aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                            aria-pressed={showPassword}
+                                            className="absolute inset-y-0 right-0 px-3.5 flex items-center text-slate-400 hover:text-sky-500 transition-colors cursor-pointer"
+                                        >
+                                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
                                     </div>
                                 </div>
 
@@ -267,70 +271,6 @@ export default function Login() {
                                 </button>
                             </div>
                         </form>
-                    )}
-
-                    {step === 'login' && (
-                        <div className="w-full mt-8 pt-6 border-t border-slate-200/50 flex-shrink-0">
-                            <div className="text-center mb-4">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                    Demo Accounts — Tap to autofill
-                                </span>
-                            </div>
-
-                            <div className="space-y-3">
-                                <div
-                                    onClick={() => handleDemoFill('admin@pharmacy.com', 'adminpassword123')}
-                                    className="flex justify-between items-center p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-sky-50 hover:border-sky-200 cursor-pointer transition-colors shadow-sm group"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-1.5 bg-indigo-100 text-indigo-600 rounded-lg group-hover:bg-indigo-200 transition-colors">
-                                            <ShieldCheck size={16} />
-                                        </div>
-                                        <span className="text-[13px] font-bold text-slate-700">Administrator (OTP)</span>
-                                    </div>
-                                    <span className="text-[11px] font-medium text-slate-400 font-mono group-hover:text-slate-500 transition-colors">admin / adminpassword123</span>
-                                </div>
-
-                                <div
-                                    onClick={() => handleDemoFill('manager@pharmacy.com', 'manager123')}
-                                    className="flex justify-between items-center p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-sky-50 hover:border-sky-200 cursor-pointer transition-colors shadow-sm group"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-1.5 bg-sky-100 text-sky-600 rounded-lg group-hover:bg-sky-200 transition-colors">
-                                            <UserCog size={16} />
-                                        </div>
-                                        <span className="text-[13px] font-bold text-slate-700">Manager</span>
-                                    </div>
-                                    <span className="text-[11px] font-medium text-slate-400 font-mono group-hover:text-slate-500 transition-colors">manager / manager123</span>
-                                </div>
-
-                                <div
-                                    onClick={() => handleDemoFill('pharmacist@pharmacy.com', 'pharma123')}
-                                    className="flex justify-between items-center p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-sky-50 hover:border-sky-200 cursor-pointer transition-colors shadow-sm group"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-1.5 bg-emerald-100 text-emerald-600 rounded-lg group-hover:bg-emerald-200 transition-colors">
-                                            <Activity size={16} />
-                                        </div>
-                                        <span className="text-[13px] font-bold text-slate-700">Pharmacist</span>
-                                    </div>
-                                    <span className="text-[11px] font-medium text-slate-400 font-mono group-hover:text-slate-500 transition-colors">pharmacist / pharma123</span>
-                                </div>
-
-                                <div
-                                    onClick={() => handleDemoFill('cashier', 'cashier123')}
-                                    className="flex justify-between items-center p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-sky-50 hover:border-sky-200 cursor-pointer transition-colors shadow-sm group"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-1.5 bg-amber-100 text-amber-600 rounded-lg group-hover:bg-amber-200 transition-colors">
-                                            <DollarSign size={16} />
-                                        </div>
-                                        <span className="text-[13px] font-bold text-slate-700">Cashier</span>
-                                    </div>
-                                    <span className="text-[11px] font-medium text-slate-400 font-mono group-hover:text-slate-500 transition-colors">cashier / cashier123</span>
-                                </div>
-                            </div>
-                        </div>
                     )}
 
                 </div>
