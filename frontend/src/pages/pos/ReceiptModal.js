@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { X, Printer } from 'lucide-react';
 
 export default function ReceiptModal({ open, onClose, sale }) {
@@ -8,8 +9,8 @@ export default function ReceiptModal({ open, onClose, sale }) {
         window.print();
     };
 
-    return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4 print:bg-white print:p-0">
+    return createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 print:bg-white print:p-0 print:backdrop-blur-none">
             <div className="bg-white rounded-[24px] shadow-2xl w-full max-w-[420px] max-h-[90vh] flex flex-col overflow-hidden print:shadow-none print:w-full print:max-w-none print:h-auto print:overflow-visible">
 
                 <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0 print:hidden">
@@ -112,6 +113,7 @@ export default function ReceiptModal({ open, onClose, sale }) {
                     </button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }
