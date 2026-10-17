@@ -1,6 +1,5 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/db');
-const Sale = require('./Sale');
 
 const SaleItem = sequelize.define('SaleItem', {
     id: {
@@ -11,6 +10,20 @@ const SaleItem = sequelize.define('SaleItem', {
     saleId: {
         type: DataTypes.INTEGER,
         allowNull: false
+    },
+    customerName: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        defaultValue: 'Walk-in Customer'
+    },
+    paymentMethod: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        defaultValue: 'Cash'
+    },
+    doctorName: {
+        type: DataTypes.STRING,
+        allowNull: true
     },
     medicineId: {
         type: DataTypes.INTEGER,
@@ -31,13 +44,18 @@ const SaleItem = sequelize.define('SaleItem', {
     lineTotal: {
         type: DataTypes.DECIMAL(10, 2),
         allowNull: false
+    },
+    status: {
+        type: DataTypes.STRING,
+        defaultValue: 'Completed'
+    },
+    remarks: {
+        type: DataTypes.TEXT,
+        allowNull: true
     }
 }, {
     tableName: 'sale_items',
     timestamps: true
 });
-
-Sale.hasMany(SaleItem, { foreignKey: 'saleId', as: 'items' });
-SaleItem.belongsTo(Sale, { foreignKey: 'saleId' });
 
 module.exports = SaleItem;
