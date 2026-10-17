@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import CashierLayout from '../../components/layout/CashierLayout';
 import { salesApi } from '../../api/salesApi';
 import axios from '../../api/axiosInstance';
@@ -9,6 +9,43 @@ import {
 import toast from 'react-hot-toast';
 import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
+
+const AnimatedNumber = ({ value, isCurrency = false }) => {
+    const [displayValue, setDisplayValue] = useState(0);
+    const prevValue = useRef(0);
+
+    useEffect(() => {
+        const start = prevValue.current;
+        const end = parseFloat(value) || 0;
+        if (start === end) {
+            setDisplayValue(end);
+            return;
+        }
+
+        let startTimestamp = null;
+        const duration = 1000;
+
+        const step = (timestamp) => {
+            if (!startTimestamp) startTimestamp = timestamp;
+            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+            const easeProgress = 1 - Math.pow(1 - progress, 4);
+            const currentVal = start + (easeProgress * (end - start));
+
+            setDisplayValue(currentVal);
+
+            if (progress < 1) {
+                window.requestAnimationFrame(step);
+            } else {
+                setDisplayValue(end);
+                prevValue.current = end;
+            }
+        };
+
+        window.requestAnimationFrame(step);
+    }, [value]);
+
+    return <span>{isCurrency ? displayValue.toFixed(2) : Math.round(displayValue)}</span>;
+};
 
 export default function CashierReportsPage() {
     const [allSales, setAllSales] = useState([]);
@@ -161,7 +198,7 @@ export default function CashierReportsPage() {
         csvRows.push(`Report Period,${rangeLabels[dateRange]}`);
         csvRows.push(`New Customers Registered in Period,${rangeNewCustomers}`);
         csvRows.push(`Total Customers in System (Overall),${totalCustomersCount}`);
-        csvRows.push(`Total Revenue (LKR),${totalRevenue.toFixed(2)}`);
+        csvRows.push(`Total Income (LKR),${totalRevenue.toFixed(2)}`);
         csvRows.push(`Total Bills Processed,${totalBills}`);
         csvRows.push(`Total Voided Value (LKR),${totalReturnsAmount.toFixed(2)}`);
 
@@ -220,7 +257,7 @@ export default function CashierReportsPage() {
                 crosshair: { color: '#e2e8f0', dashStyle: 'Dash' }
             },
             yAxis: {
-                title: { text: 'REVENUE (LKR)', align: 'high', style: { color: '#94a3b8', fontSize: '10px', fontWeight: '700', letterSpacing: '1px' } },
+                title: { text: 'INCOME (LKR)', align: 'high', style: { color: '#94a3b8', fontSize: '10px', fontWeight: '700', letterSpacing: '1px' } },
                 labels: { style: { color: '#94a3b8', fontWeight: '500' } },
                 gridLineColor: 'rgba(255,255,255,0.2)',
                 gridLineDashStyle: 'Dash'
@@ -242,7 +279,7 @@ export default function CashierReportsPage() {
                 }
             },
             legend: { enabled: false }, credits: { enabled: false },
-            series: [{ name: dateRange === 'today' ? 'Hourly Revenue' : 'Daily Revenue', data: data.length > 0 ? data : [0] }]
+            series: [{ name: dateRange === 'today' ? 'Hourly Income' : 'Daily Income', data: data.length > 0 ? data : [0] }]
         };
     };
 
@@ -260,7 +297,9 @@ export default function CashierReportsPage() {
             chart: {
                 type: 'pie',
                 backgroundColor: 'transparent',
-                height: 320,
+                height: 380,
+                marginTop: 20,
+                marginBottom: 20,
                 style: { fontFamily: 'Inter, sans-serif' },
                 events: {
                     load: function() {
@@ -290,10 +329,10 @@ export default function CashierReportsPage() {
                 }
             },
             title: {
-                text: `<div style="text-align:center; line-height:1;"><span id="animated-percentage-donut" style="font-size:46px; font-weight:900; color:#1e293b; letter-spacing:-1px;">0</span><br/><span style="font-size:10px; color:#94a3b8; font-weight:800; letter-spacing:1.5px; text-transform:uppercase;">Percentage</span></div>`,
+                text: `<div style="text-align:center; line-height:1.1;"><span id="animated-percentage-donut" style="font-size:36px; font-weight:bold; color:#000000; letter-spacing:-1px;">0</span><br/><span style="font-size:9px; color:#94a3b8; font-weight:normal; letter-spacing:1px; text-transform:uppercase;">Percentage</span></div>`,
                 align: 'center',
                 verticalAlign: 'middle',
-                y: 10,
+                y: -10,
                 useHTML: true
             },
             tooltip: {
@@ -309,8 +348,9 @@ export default function CashierReportsPage() {
                     animation: {
                         duration: 1500
                     },
-                    size: '95%',
-                    innerSize: '78%',
+                    size: '80%',
+                    innerSize: '80%',
+                    center: ['50%', '40%'],
                     borderWidth: 4,
                     borderColor: '#ffffff',
                     dataLabels: {
@@ -332,7 +372,9 @@ export default function CashierReportsPage() {
                 layout: 'horizontal',
                 align: 'center',
                 verticalAlign: 'bottom',
-                itemMarginTop: 5
+                itemMarginTop: 5,
+                padding: 10,
+                itemDistance: 15
             },
             credits: { enabled: false },
             series: [{ name: 'Quantity Sold', data: data.length > 0 ? data : [{ name: 'No Data', y: 1, color: '#e2e8f0' }] }]
@@ -412,9 +454,11 @@ export default function CashierReportsPage() {
                         <div className="bg-white/40 backdrop-blur-md p-5 rounded-[24px] border border-white/60 shadow-sm flex flex-col justify-center">
                             <div className="flex items-center gap-3 mb-2">
                                 <TrendingUp size={18} className="text-emerald-500" />
-                                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Revenue ({dateRange === 'today' ? 'Today' : 'Period'})</p>
+                                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Income ({dateRange === 'today' ? 'Today' : 'Period'})</p>
                             </div>
-                            <p className="text-[24px] font-black text-slate-800">LKR {totalRevenue.toFixed(2)}</p>
+                            <p className="text-[24px] font-black text-slate-800">
+                                LKR <AnimatedNumber value={totalRevenue} isCurrency={true} />
+                            </p>
                         </div>
 
                         <div className="bg-white/40 backdrop-blur-md p-5 rounded-[24px] border border-white/60 shadow-sm flex flex-col justify-center">
@@ -422,7 +466,9 @@ export default function CashierReportsPage() {
                                 <Package size={18} className="text-indigo-500" />
                                 <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Bills Processed</p>
                             </div>
-                            <p className="text-[24px] font-black text-slate-800">{totalBills}</p>
+                            <p className="text-[24px] font-black text-slate-800">
+                                <AnimatedNumber value={totalBills} />
+                            </p>
                         </div>
 
                         <div className="bg-white/40 backdrop-blur-md p-5 rounded-[24px] border border-white/60 shadow-sm flex flex-col justify-center">
@@ -430,7 +476,9 @@ export default function CashierReportsPage() {
                                 <Users size={18} className="text-sky-500" />
                                 <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">New / Total CRM</p>
                             </div>
-                            <p className="text-[24px] font-black text-slate-800" title={`New Customers in Period / Total System Customers`}>{rangeNewCustomers} <span className="text-[14px] text-slate-400 font-bold">/ {totalCustomersCount}</span></p>
+                            <p className="text-[24px] font-black text-slate-800" title={`New Customers in Period / Total System Customers`}>
+                                <AnimatedNumber value={rangeNewCustomers} /> <span className="text-[14px] text-slate-400 font-bold">/ {totalCustomersCount}</span>
+                            </p>
                         </div>
 
                         <div className="bg-white/40 backdrop-blur-md p-5 rounded-[24px] border border-white/60 shadow-sm flex flex-col justify-center">
@@ -438,7 +486,9 @@ export default function CashierReportsPage() {
                                 <TrendingDown size={18} className="text-rose-500" />
                                 <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Voided Amount</p>
                             </div>
-                            <p className="text-[24px] font-black text-slate-800">LKR {totalReturnsAmount.toFixed(2)}</p>
+                            <p className="text-[24px] font-black text-slate-800">
+                                LKR <AnimatedNumber value={totalReturnsAmount} isCurrency={true} />
+                            </p>
                         </div>
                     </div>
 
@@ -449,7 +499,7 @@ export default function CashierReportsPage() {
                                     <CalendarClock size={18} strokeWidth={2.5} />
                                 </div>
                                 <div>
-                                    <h2 className="text-[17px] font-bold text-slate-800 tracking-tight">Revenue Trend ({dateRange === 'today' ? 'Hourly' : 'Daily'})</h2>
+                                    <h2 className="text-[17px] font-bold text-slate-800 tracking-tight">Income Trend ({dateRange === 'today' ? 'Hourly' : 'Daily'})</h2>
                                 </div>
                             </div>
                             <div className="w-full mt-2">
@@ -466,8 +516,8 @@ export default function CashierReportsPage() {
                                     <h2 className="text-[17px] font-bold text-slate-800 tracking-tight">Top Selling</h2>
                                 </div>
                             </div>
-                            <div className="w-full mt-2 flex-1 flex items-center justify-center">
-                                <div className="w-full">
+                            <div className="w-full mt-2 flex-1 flex items-center justify-center pt-2 pb-4">
+                                <div className="w-full h-full">
                                     <HighchartsReact
                                         key={`donut-chart-${dateRange}`}
                                         highcharts={Highcharts}
@@ -513,12 +563,13 @@ export default function CashierReportsPage() {
                         </div>
                     </div>
 
-                    <div className="bg-white/30 backdrop-blur-2xl rounded-[32px] border border-white/50 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden flex flex-col mt-2">
-                        <div className="p-6 border-b border-white/30 flex flex-col lg:flex-row justify-between gap-4 bg-white/10">
-                            <div className="flex items-center gap-3">
-                                <h2 className="text-[16px] font-bold text-slate-800 ml-2">Transactions Log</h2>
-                                <span className="text-[11px] font-bold bg-sky-100 text-sky-700 px-2 py-0.5 rounded-md border border-sky-200">{displaySales.length} Total</span>
+                    <div className="bg-white/30 backdrop-blur-2xl rounded-[32px] border border-white/50 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] overflow-hidden flex flex-col mt-4">
+                        <div className="p-8 pb-6 border-b border-white/30 flex flex-wrap gap-6 items-end justify-between">
+                            <div>
+                                <h2 className="text-[18px] font-bold text-[#1e293b] tracking-tight">Transactions Log</h2>
+                                <p className="text-[13px] text-slate-500 mt-0.5 font-medium">Showing {displaySales.length} total records</p>
                             </div>
+
                             <div className="relative w-full lg:w-80">
                                 <Search size={18} className="absolute left-4 top-3.5 text-slate-400" />
                                 <input
@@ -526,21 +577,21 @@ export default function CashierReportsPage() {
                                     placeholder="Search Invoice or Customer..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="w-full pl-11 pr-4 py-3 bg-white/60 border border-white/80 rounded-2xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-sky-500/40 shadow-sm backdrop-blur-sm"
+                                    className="w-full pl-11 pr-4 py-3 bg-white/40 border border-white/50 rounded-2xl text-[13px] font-medium text-slate-700 outline-none focus:ring-2 focus:ring-sky-500/20 shadow-sm backdrop-blur-sm"
                                 />
                             </div>
                         </div>
 
-                        <div className="overflow-x-auto px-8 py-4 max-h-[400px] overflow-y-auto custom-scrollbar">
-                            <table className="w-full text-left border-collapse min-w-[800px]">
-                                <thead>
+                        <div className="overflow-y-auto overflow-x-hidden w-full custom-scrollbar max-h-[500px]">
+                            <table className="w-full text-left border-collapse">
+                                <thead className="sticky top-0 z-20 bg-slate-50/95 backdrop-blur-sm">
                                 <tr>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 sticky top-0 bg-[#f8fafc]/90 backdrop-blur-md">Invoice #</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 sticky top-0 bg-[#f8fafc]/90 backdrop-blur-md">Time / Date</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 sticky top-0 bg-[#f8fafc]/90 backdrop-blur-md">Customer / RX Info</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 sticky top-0 bg-[#f8fafc]/90 backdrop-blur-md">Items Qty</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 sticky top-0 bg-[#f8fafc]/90 backdrop-blur-md text-right">Total (LKR)</th>
-                                    <th className="pb-4 pt-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/30 sticky top-0 bg-[#f8fafc]/90 backdrop-blur-md text-right">Status</th>
+                                    <th className="pl-8 pr-4 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">Invoice ID</th>
+                                    <th className="px-4 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">Date & Time</th>
+                                    <th className="px-4 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">Customer Info</th>
+                                    <th className="px-4 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-center">Items</th>
+                                    <th className="px-4 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right">Amount (LKR)</th>
+                                    <th className="pr-8 pl-4 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right">Status</th>
                                 </tr>
                                 </thead>
                                 <tbody>
@@ -551,45 +602,43 @@ export default function CashierReportsPage() {
                                 ) : (
                                     filteredDisplaySales.map((sale) => {
                                         const itemCount = sale.items && Array.isArray(sale.items) ? sale.items.reduce((sum, item) => sum + Number(item.quantity), 0) : 0;
+                                        const isVoided = sale.status === 'Voided';
 
                                         return (
-                                            <tr key={sale.saleId || sale.id} className={`group hover:bg-white/40 transition-colors border-b border-white/30 last:border-0 ${sale.status === 'Voided' ? 'opacity-60 bg-rose-50/20' : ''}`}>
-                                                <td className="py-4 font-mono text-[13px] font-bold text-slate-800 align-top pt-5">
+                                            <tr key={sale.saleId || sale.id} className={`group hover:bg-white/20 transition-colors border-b border-white/20 last:border-0 ${isVoided ? 'opacity-60 bg-rose-50/10' : ''}`}>
+                                                <td className="py-4 pl-8 pr-4 align-top pt-5 text-[13px] font-bold text-[#1e293b]">
                                                     {String(sale.saleId || sale.id).slice(0, 8).toUpperCase()}
                                                 </td>
-                                                <td className="py-4 text-[13px] font-medium text-slate-600 align-top pt-5">
-                                                    {new Date(sale.saleDate || sale.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                                    <span className="block text-[10px] text-slate-400 font-bold mt-0.5">{new Date(sale.saleDate || sale.createdAt).toLocaleDateString()}</span>
+                                                <td className="py-4 px-4 align-top pt-5 text-[13px] font-medium text-slate-600">
+                                                    {new Date(sale.saleDate || sale.createdAt).toLocaleString()}
                                                 </td>
-                                                <td className="py-4 align-top pt-5">
-                                                    <div className="flex flex-col gap-1">
-                                                        <span className="text-[13px] font-semibold text-slate-700">
-                                                            {sale.customerName || 'Walk-in Customer'}
-                                                        </span>
-                                                        {sale.prescriptionId && (
-                                                            <span className="text-[10px] font-bold flex items-center gap-1 text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded w-fit border border-indigo-100">
-                                                                <FileSignature size={12}/> RX-{String(sale.prescriptionId).padStart(4, '0')}
+                                                <td className="py-4 px-4 align-top">
+                                                    <div className="flex flex-col items-start gap-1">
+                                                            <span className="text-[14px] font-semibold text-slate-700 mt-0.5">
+                                                                {sale.customerName || 'Walk-in Customer'}
                                                             </span>
+                                                        {sale.prescriptionId && (
+                                                            <span className="text-[11px] text-sky-600 font-medium flex items-center gap-1">
+                                                                    <FileSignature size={11} className="min-w-[11px]"/> RX-{String(sale.prescriptionId).padStart(4, '0')}
+                                                                </span>
                                                         )}
                                                     </div>
                                                 </td>
-                                                <td className="py-4 align-top pt-5">
-                                                    <span className="text-[13px] font-bold text-slate-600 bg-white/50 px-2.5 py-1 rounded-lg border border-white/80 shadow-sm">
-                                                        {itemCount} Items
-                                                    </span>
+                                                <td className="py-4 px-4 align-top pt-5 text-[13px] font-semibold text-slate-700 text-center">
+                                                    {itemCount}
                                                 </td>
-                                                <td className="py-4 text-[14px] font-bold text-sky-700 text-right pr-4 align-top pt-5">
-                                                    {Number(sale.totalAmount).toFixed(2)}
+                                                <td className="py-4 px-4 align-top pt-5 text-[14px] font-bold text-[#1e293b] text-right">
+                                                    {Number(sale.totalAmount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                                                 </td>
-                                                <td className="py-4 text-right align-top pt-5">
+                                                <td className="py-4 pr-8 pl-4 align-top text-right pt-4">
                                                     {sale.status === 'Completed' ? (
-                                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100/50 border border-emerald-200/50 text-emerald-600 rounded-lg text-[11px] font-bold shadow-sm">
-                                                            <CheckCircle size={12}/> Completed
-                                                        </span>
+                                                        <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100/50 text-emerald-700 border border-emerald-200/50">
+                                                                Completed
+                                                            </span>
                                                     ) : (
-                                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-100/50 border border-rose-200/50 text-rose-600 rounded-lg text-[11px] font-bold shadow-sm">
-                                                            <Ban size={12}/> Voided
-                                                        </span>
+                                                        <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100/50 text-rose-700 border border-rose-200/50">
+                                                                Voided
+                                                            </span>
                                                     )}
                                                 </td>
                                             </tr>
