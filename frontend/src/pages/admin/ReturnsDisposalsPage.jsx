@@ -1,16 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { Archive, ArrowRightLeft, Banknote, Flame, CheckCircle, Clock, Printer } from 'lucide-react';
 import axios from '../../api/axiosInstance';
 import toast from 'react-hot-toast';
+import ReturnEvidence from '../../components/returns/ReturnEvidence';
 
 export default function ReturnsDisposalsPage() {
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('All');
+    const [settlementForm, setSettlementForm] = useState(null);
+    const [settlementReason, setSettlementReason] = useState('');
+    const [evidenceImage, setEvidenceImage] = useState(null);
+    const [evidenceLoading, setEvidenceLoading] = useState(false);
+    const [submittingSettlement, setSubmittingSettlement] = useState(false);
+    const settlementBusy = useRef(false);
+    const evidenceRead = useRef(0);
 
-    const fetchData = async (controller = null) => {
-        setLoading(true);
+    const fetchData = async (controller = null, silent = false) => {
+        if (!silent) setLoading(true);
         try {
             const token = localStorage.getItem('token');
             const config = {
@@ -19,14 +27,14 @@ export default function ReturnsDisposalsPage() {
             };
 
             const res = await axios.get('http://localhost:5000/api/returns/history', config);
-            setHistory(res.data || []);
+            if (!controller?.signal.aborted) setHistory(res.data || []);
         } catch (err) {
             if (!axios.isCancel(err)) {
-                toast.error('Failed to load Returns & Disposals data');
+                if (!silent) toast.error('Failed to load Returns & Disposals data');
                 console.error("Fetch Data Error:", err);
             }
         } finally {
-            setLoading(false);
+            if (!silent && !controller?.signal.aborted) setLoading(false);
         }
     };
 
@@ -40,33 +48,84 @@ export default function ReturnsDisposalsPage() {
             }
         };
         load();
+        let refreshing = false;
+        const refresh = async () => {
+            if (!isMounted || document.hidden || refreshing) return;
+            refreshing = true;
+            await fetchData(controller, true);
+            refreshing = false;
+        };
+        const timer = window.setInterval(refresh, 5000);
+        window.addEventListener('focus', refresh);
 
         return () => {
+            window.clearInterval(timer);
+            window.removeEventListener('focus', refresh);
             isMounted = false;
             controller.abort();
         };
     }, []);
 
-    const handleAction = async (id, type) => {
-        const confirmMsg = type === 'replace'
-            ? 'Receive replacement stock and clear Debit Note?'
-            : 'Accept Cash Refund and clear Debit Note?';
+    const handleAction = (id, type) => {
+        if (settlementBusy.current) return;
+        evidenceRead.current += 1;
+        setSettlementForm({ id, type });
+        setSettlementReason('');
+        setEvidenceImage(null);
+        setEvidenceLoading(false);
+    };
 
-        if (!window.confirm(confirmMsg)) return;
+    const closeSettlement = () => {
+        if (settlementBusy.current) return;
+        evidenceRead.current += 1;
+        setSettlementForm(null);
+    };
 
+    const selectEvidence = (event) => {
+        const file = event.target.files?.[0];
+        const version = ++evidenceRead.current;
+        setEvidenceImage(null);
+        setEvidenceLoading(false);
+        if (!file) return;
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+            event.target.value = '';
+            toast.error('Choose a JPG, PNG or WebP image, up to 5 MB.');
+            return;
+        }
+        setEvidenceLoading(true);
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (version !== evidenceRead.current) return;
+            setEvidenceImage(reader.result);
+            setEvidenceLoading(false);
+        };
+        reader.onerror = () => {
+            if (version !== evidenceRead.current) return;
+            setEvidenceLoading(false);
+            toast.error('Unable to read this photo. Please choose it again.');
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const submitSettlement = async (event) => {
+        event.preventDefault();
+        if (!settlementForm || settlementBusy.current || evidenceLoading) return;
+        if (!settlementReason.trim()) return toast.error('Please enter a reason.');
+        settlementBusy.current = true;
+        setSubmittingSettlement(true);
         try {
-            const token = localStorage.getItem('token');
-            const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
-
-            await axios.post(`http://localhost:5000/api/returns/${type}/${id}`, {}, config);
-
-            toast.success(type === 'replace' ? 'Replacement Stock Added! ✅' : 'Cash Refund Processed! 💵');
-
-            await fetchData();
+            await axios.post(`http://localhost:5000/api/returns/${settlementForm.type}/${settlementForm.id}`, {
+                reason: settlementReason.trim(), evidenceImage
+            }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+            toast.success('Submitted to supplier. Status: Reviewing.');
+            setSettlementForm(null);
+            await fetchData(null, true);
         } catch (err) {
-            if(!axios.isCancel(err)) {
-                toast.error('Action failed. Please check backend connection.');
-            }
+            toast.error(err.response?.data?.error || 'Unable to submit the request.');
+            await fetchData(null, true);
+        } finally {
+            settlementBusy.current = false;
+            setSubmittingSettlement(false);
         }
     };
 
@@ -283,10 +342,10 @@ export default function ReturnsDisposalsPage() {
                                 ) : (
                                     displayedHistory.map((record) => {
                                         const isDisposal = record.actionType === 'Dispose/Write-off';
-                                        const isPendingReturn = !isDisposal && record.status === 'Pending';
+                                        const isPendingReturn = !isDisposal && record.status === 'Pending' && (!record.reviewStatus || record.reviewStatus === 'Rejected');
                                         const refPrefix = isDisposal ? 'DISP' : 'DN';
 
-                                        const displayStatus = isDisposal ? 'Completed' : record.status;
+                                        const displayStatus = isDisposal ? 'Completed' : ['Reviewing', 'Rejected'].includes(record.reviewStatus) ? record.reviewStatus : record.status;
 
                                         return (
                                             <tr key={record.id} className="group transition-colors border-b border-white/20 hover:bg-white/20 last:border-0">
@@ -311,6 +370,9 @@ export default function ReturnsDisposalsPage() {
                                                         {!isDisposal ? 'DEBIT NOTE' : 'WRITE-OFF'}
                                                     </span><br/>
                                                     <p className="text-[10px] font-medium text-slate-500 mt-1.5 truncate" title={record.reason}>{record.reason}</p>
+                                                    {record.settlementReason && <p className="text-[11px] text-slate-600 mt-2 whitespace-pre-wrap break-words"><strong>{record.settlementType === 'replace' ? 'Replacement' : 'Cash refund'}:</strong> {record.settlementReason}</p>}
+                                                    {record.rejectionReason && <p className="text-[11px] text-rose-600 mt-2 whitespace-pre-wrap break-words"><strong>Rejected:</strong> {record.rejectionReason}</p>}
+                                                    <ReturnEvidence adjustmentId={record.id} hasEvidence={record.hasEvidence} reviewVersion={record.reviewVersion} />
                                                     <p className="text-[9px] font-semibold text-slate-400 mt-0.5">By: Admin</p>
                                                 </td>
 
@@ -322,6 +384,9 @@ export default function ReturnsDisposalsPage() {
                                                 </td>
 
                                                 <td className="py-4 align-top pt-5">
+                                                    {displayStatus === 'Reviewing' && <span className="rd-badge text-blue-700 bg-blue-100">Reviewing</span>}
+                                                    {displayStatus === 'Rejected' && <span className="rd-badge text-rose-700 bg-rose-100">Rejected</span>}
+                                                    {record.reviewStatus === 'Accepted' && <span className="block text-[10px] font-semibold text-emerald-600 mb-1">Accepted</span>}
                                                     {displayStatus === 'Pending' && <span className="rd-badge text-[11px] font-bold text-amber-600 bg-amber-100/80 px-2.5 py-1 rounded-lg border border-amber-200/50 shadow-sm">Pending</span>}
                                                     {displayStatus === 'Replaced' && <span className="rd-badge text-[11px] font-bold text-emerald-600 bg-emerald-100/80 px-2.5 py-1 rounded-lg flex items-center w-max gap-1 border border-emerald-200/50 shadow-sm"><CheckCircle size={10} strokeWidth={3}/> Replaced</span>}
                                                     {displayStatus === 'Refunded' && <span className="rd-badge text-[11px] font-bold text-blue-600 bg-blue-100/80 px-2.5 py-1 rounded-lg flex items-center w-max gap-1 border border-blue-200/50 shadow-sm"><Banknote size={10} strokeWidth={3}/> Refunded</span>}
@@ -339,7 +404,7 @@ export default function ReturnsDisposalsPage() {
                                                             </button>
                                                         </div>
                                                     ) : (
-                                                        <span className="text-[11px] font-semibold text-slate-400 mt-2 block">Settled</span>
+                                                        <span className="text-[11px] font-semibold text-slate-400 mt-2 block">{displayStatus === 'Reviewing' ? 'Awaiting supplier' : 'Settled'}</span>
                                                     )}
                                                 </td>
                                             </tr>
@@ -352,6 +417,30 @@ export default function ReturnsDisposalsPage() {
                     </div>
                 </div>
             </div>
+            {settlementForm && (
+                <div className="fixed inset-0 z-[150] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 no-print">
+                    <form onSubmit={submitSettlement} role="dialog" aria-modal="true" aria-labelledby="return-settlement-title" className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <h2 id="return-settlement-title" className="text-xl font-bold text-slate-800">{settlementForm.type === 'replace' ? 'Request Replacement' : 'Request Cash Refund'}</h2>
+                                <p className="text-xs text-slate-500 mt-1">Debit Note #{settlementForm.id} · Supplier review required</p>
+                            </div>
+                            <button type="button" onClick={closeSettlement} disabled={submittingSettlement} aria-label="Close request" className="rounded-full px-3 py-1 text-slate-500 hover:bg-slate-100 disabled:opacity-50">✕</button>
+                        </div>
+                        <label htmlFor="return-reason" className="block mt-6 mb-2 text-sm font-semibold text-slate-700">Reason *</label>
+                        <textarea id="return-reason" required maxLength={2000} autoFocus rows={4} value={settlementReason} onChange={e => setSettlementReason(e.target.value)} disabled={submittingSettlement} placeholder="Explain why this stock needs a replacement or refund..." className="w-full rounded-2xl border border-slate-200 p-3 text-sm outline-none focus:ring-2 focus:ring-blue-300" />
+                        <label htmlFor="return-photo" className="block mt-4 mb-2 text-sm font-semibold text-slate-700">Photo (optional)</label>
+                        <input id="return-photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={selectEvidence} disabled={submittingSettlement || evidenceLoading} className="w-full text-xs text-slate-500" />
+                        <p className="mt-2 text-xs text-slate-400">JPG, PNG or WebP · Maximum 5 MB</p>
+                        {evidenceLoading && <p className="mt-2 text-xs text-blue-600">Reading photo...</p>}
+                        {evidenceImage && <img src={evidenceImage} alt="Return evidence preview" className="mt-3 max-h-48 w-full rounded-xl object-contain border border-slate-100" />}
+                        <div className="flex justify-end gap-3 mt-6">
+                            <button type="button" onClick={closeSettlement} disabled={submittingSettlement} className="px-5 py-2.5 rounded-full bg-slate-100 text-sm font-semibold text-slate-600 disabled:opacity-50">Cancel</button>
+                            <button type="submit" disabled={submittingSettlement || evidenceLoading || !settlementReason.trim()} className="px-5 py-2.5 rounded-full bg-blue-600 text-white text-sm font-semibold disabled:opacity-50">{submittingSettlement ? 'Submitting...' : 'Submit for Review'}</button>
+                        </div>
+                    </form>
+                </div>
+            )}
         </AdminLayout>
     );
 }
