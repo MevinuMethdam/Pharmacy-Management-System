@@ -5,6 +5,7 @@ const Medicine = require('../models/Medicine');
 const Supplier = require('../models/Supplier');
 const nodemailer = require('nodemailer');
 const Notification = require('../models/Notification');
+const { enrichPurchases } = require('../services/returnAccounting');
 
 exports.createPurchase = async (req, res) => {
     const t = await sequelize.transaction();
@@ -19,7 +20,7 @@ exports.createPurchase = async (req, res) => {
             throw new Error("Items array is required");
         }
 
-        const supplier = await Supplier.findByPk(supplierId, { transaction: t });
+        const supplier = await Supplier.findByPk(supplierId, { transaction: t, lock: t.LOCK.UPDATE });
 
         const finalSupplierName = req.body.supplierName || (supplier ? supplier.companyName : null);
         const finalNmraLicense = req.body.nmraLicense || (supplier ? (supplier.nmraLicense || supplier.brNumber) : null);
@@ -193,7 +194,7 @@ exports.getAllPurchases = async (req, res) => {
             ],
             order: [['createdAt', 'DESC']]
         });
-        res.status(200).json(purchases);
+        res.status(200).json(await enrichPurchases(purchases));
     } catch (error) {
         console.error("Error fetching purchases:", error);
         res.status(500).json({ error: 'Failed to fetch purchases' });
@@ -202,6 +203,9 @@ exports.getAllPurchases = async (req, res) => {
 
 exports.getSupplierPurchases = async (req, res) => {
     try {
+        if (!req.user || req.user.role !== 'Supplier' || !req.user.supplierId) {
+            return res.status(403).json({ error: 'Supplier account required. Please sign in to the supplier portal again.' });
+        }
         const supplierId = req.user.supplierId;
 
         const purchases = await PurchaseInvoice.findAll({
@@ -213,7 +217,7 @@ exports.getSupplierPurchases = async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
 
-        res.status(200).json(purchases);
+        res.status(200).json(await enrichPurchases(purchases));
     } catch (err) {
         console.error('Error fetching supplier purchases:', err);
         res.status(500).json({ error: 'Failed to fetch your purchase orders' });
