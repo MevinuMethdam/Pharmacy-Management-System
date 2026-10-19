@@ -10,7 +10,7 @@ const { Op } = require('sequelize');
 exports.createSale = async (req, res) => {
     const t = await sequelize.transaction();
     try {
-        const { customerName, paymentMethod, doctorName, items, remarks, prescriptionId } = req.body;
+        const { customerId, customerName, paymentMethod, doctorName, items, remarks, prescriptionId } = req.body;
 
         if (!items || items.length === 0) {
             await t.rollback();
@@ -31,6 +31,44 @@ exports.createSale = async (req, res) => {
             return res.status(400).json({
                 error: 'Regulatory Compliance Error: Controlled substances strictly require Patient Name, Doctor Name, and Prescription Reference (RX)!'
             });
+        }
+
+        let prescription = null;
+        if (prescriptionId) {
+            prescription = await Prescription.findByPk(prescriptionId, { transaction: t });
+            if (!prescription) {
+                await t.rollback();
+                return res.status(400).json({ error: 'Selected prescription was not found. Reload prescriptions and try again.' });
+            }
+        }
+
+        const hasCustomerId = customerId !== undefined && customerId !== null && customerId !== '';
+        if (hasCustomerId && prescription && String(customerId) !== String(prescription.patientId)) {
+            await t.rollback();
+            return res.status(400).json({ error: 'Selected customer does not match the prescription patient.' });
+        }
+
+        let customer = null;
+        const resolvedCustomerId = prescription ? prescription.patientId : (hasCustomerId ? customerId : null);
+        if (resolvedCustomerId !== null) {
+            customer = await Customer.findByPk(resolvedCustomerId, { transaction: t, lock: t.LOCK.UPDATE });
+            if (!customer) {
+                await t.rollback();
+                return res.status(400).json({ error: 'Selected CRM customer was not found. Reload the patient details and try again.' });
+            }
+        } else if (customerName && customerName !== 'Walk-in Customer') {
+
+            const matches = await Customer.findAll({
+                where: { [Op.or]: [{ name: customerName }, { contactNumber: customerName }, { nic: customerName }] },
+                limit: 2,
+                transaction: t,
+                lock: t.LOCK.UPDATE
+            });
+            if (matches.length !== 1) {
+                await t.rollback();
+                return res.status(400).json({ error: 'CRM customer could not be identified uniquely. Select the patient prescription and try again.' });
+            }
+            customer = matches[0];
         }
 
         let totalAmount = 0;
@@ -80,11 +118,8 @@ exports.createSale = async (req, res) => {
             }, { transaction: t });
         }
 
-        if (prescriptionId) {
-            const prescription = await Prescription.findByPk(prescriptionId, { transaction: t });
-            if (prescription) {
-                await prescription.update({ status: 'Dispensed' }, { transaction: t });
-            }
+        if (prescription) {
+            await prescription.update({ status: 'Dispensed' }, { transaction: t });
         }
 
         for (const item of processedItems) {
@@ -104,40 +139,20 @@ exports.createSale = async (req, res) => {
             }
         }
 
-        if (customerName && customerName !== 'Walk-in Customer') {
-            const customer = await Customer.findOne({
-                where: {
-                    [Op.or]: [
-                        { name: customerName },
-                        { contactNumber: customerName },
-                        { nic: customerName }
-                    ]
-                },
-                transaction: t
-            });
+        if (customer) {
+            const currentPoints = Number(customer.loyaltyPoints || 0);
+            const pointsToDeduct = Math.min(totalAmount, currentPoints);
+            const earnedPoints = Math.floor(totalAmount / 100) + 10;
+            const newLoyaltyPoints = (currentPoints - pointsToDeduct) + earnedPoints;
 
-            if (customer) {
-                const currentPoints = customer.loyaltyPoints || 0;
-
-                const pointsToDeduct = Math.min(totalAmount, currentPoints);
-
-                let earnedPoints = Math.floor(totalAmount / 100) + 10;
-
-                if (customer.age && parseInt(customer.age) > 60) {
-                    earnedPoints += 20;
-                }
-                const newLoyaltyPoints = (currentPoints - pointsToDeduct) + earnedPoints;
-
-                await customer.update({
-                    loyaltyPoints: newLoyaltyPoints
-                }, { transaction: t });
-            }
+            await customer.update({ loyaltyPoints: newLoyaltyPoints }, { transaction: t });
         }
 
         await t.commit();
 
         const io = req.app.get('io');
         if (io) {
+            if (customer) io.emit('crm_updated', { customerId: customer.id });
             const saleIdStr = String(newSaleId);
             io.emit('receive_notification', {
                 id: Date.now(),
