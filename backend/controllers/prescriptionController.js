@@ -1,6 +1,52 @@
 const Prescription = require('../models/Prescription');
 const Customer = require('../models/Customer');
 const Medicine = require('../models/Medicine');
+const sequelize = require('../config/db');
+const { Op } = require('sequelize');
+
+const syncPatientProfile = async (patientId, details, transaction) => {
+    const customer = await Customer.findByPk(patientId, { transaction, lock: transaction.LOCK.UPDATE });
+    if (!customer) {
+        const error = new Error('Selected CRM patient was not found. Reload patients and try again.');
+        error.status = 400;
+        throw error;
+    }
+
+    const fields = {
+        patientName: 'name', patientNic: 'nic', patientAge: 'age',
+        patientGender: 'gender', patientContactNumber: 'contactNumber'
+    };
+    const updates = {};
+    for (const [source, target] of Object.entries(fields)) {
+        const value = details[source];
+        if (value === undefined || value === null || String(value).trim() === '') continue;
+        if (/^(unknown|n\/a|null)$/i.test(String(value).trim())) continue;
+        updates[target] = target === 'age' ? Number(value) : String(value).trim();
+    }
+    if (updates.age !== undefined && (!Number.isInteger(updates.age) || updates.age <= 0 || updates.age > 120)) {
+        const error = new Error('Patient age must be a whole number between 1 and 120.');
+        error.status = 400;
+        throw error;
+    }
+    for (const field of ['nic', 'contactNumber']) {
+        if (!updates[field] || updates[field] === customer[field]) continue;
+        const duplicate = await Customer.findOne({
+            where: { [field]: updates[field], id: { [Op.ne]: customer.id } },
+            transaction
+        });
+        if (duplicate) {
+            const error = new Error(`Patient ${field === 'nic' ? 'NIC' : 'contact number'} is already registered to another CRM patient.`);
+            error.status = 400;
+            throw error;
+        }
+    }
+    if (Object.keys(updates).length) await customer.update(updates, { transaction });
+};
+
+const notifyPatientUpdate = (req, patientId) => {
+    const io = req.app.get('io');
+    if (io) io.emit('crm_updated', { customerId: patientId });
+};
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -83,30 +129,34 @@ exports.createPrescription = async (req, res) => {
             });
         }
 
-        const prescription = await Prescription.create({
-            patientId,
-            patientName,
-            patientNic,
-            patientAge,
-            patientGender,
-            patientContactNumber,
-            doctorName,
-            doctorSpecialization,
-            doctorContactNumber,
-            medicineIds: medIds.join(','),
-            medicineNames: medNames.join(','),
-            quantities: medQts.join(','),
-            dosageInstructions: medDosages.join(' || '),
-            prescriptionDate,
-            status: status || 'Pending',
-            digitalCopyUrl,
-            notes
+        const prescription = await sequelize.transaction(async (transaction) => {
+            await syncPatientProfile(patientId, req.body, transaction);
+            return Prescription.create({
+                patientId,
+                patientName,
+                patientNic,
+                patientAge,
+                patientGender,
+                patientContactNumber,
+                doctorName,
+                doctorSpecialization,
+                doctorContactNumber,
+                medicineIds: medIds.join(','),
+                medicineNames: medNames.join(','),
+                quantities: medQts.join(','),
+                dosageInstructions: medDosages.join(' || '),
+                prescriptionDate,
+                status: status || 'Pending',
+                digitalCopyUrl,
+                notes
+            }, { transaction });
         });
 
+        notifyPatientUpdate(req, patientId);
         res.status(201).json(prescription);
     } catch (err) {
         console.error('Error creating prescription:', err);
-        res.status(500).json({ error: 'Failed to create prescription' });
+        res.status(err.status || 500).json({ error: err.status ? err.message : 'Failed to create prescription' });
     }
 };
 
@@ -138,12 +188,18 @@ exports.updatePrescription = async (req, res) => {
             updateData.dosageInstructions = medDosages.join(' || ');
         }
 
-        await prescription.update(updateData);
+        await sequelize.transaction(async (transaction) => {
+            const patientId = updateData.patientId ?? prescription.patientId;
+            await syncPatientProfile(patientId, req.body, transaction);
+            await prescription.update(updateData, { transaction });
+        });
+
+        notifyPatientUpdate(req, prescription.patientId);
 
         res.status(200).json(prescription);
     } catch (err) {
         console.error('Error updating prescription:', err);
-        res.status(500).json({ error: 'Failed to update prescription' });
+        res.status(err.status || 500).json({ error: err.status ? err.message : 'Failed to update prescription' });
     }
 };
 
