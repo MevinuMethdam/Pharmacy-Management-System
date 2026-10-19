@@ -1,4 +1,6 @@
 const Medicine = require('../models/Medicine');
+const StockAdjustment = require('../models/StockAdjustment');
+const { Op } = require('sequelize');
 
 exports.addMedicine = async (req, res) => {
     try {
@@ -58,7 +60,14 @@ exports.getMedicines = async (req, res) => {
         const medicines = await Medicine.findAll({
             order: [['createdAt', 'DESC']]
         });
-        res.status(200).json(medicines);
+        const zeroIds = medicines.filter(row => Number(row.quantity) === 0).map(row => row.id);
+        const adjustments = zeroIds.length ? await StockAdjustment.findAll({
+            where: { medicineId: { [Op.in]: zeroIds } }, order: [['id', 'DESC']],
+            attributes: ['medicineId', 'status']
+        }) : [];
+        const latest = new Map();
+        for (const row of adjustments) if (!latest.has(Number(row.medicineId))) latest.set(Number(row.medicineId), row.status);
+        res.status(200).json(medicines.filter(row => Number(row.quantity) !== 0 || latest.get(Number(row.id)) !== 'Refunded'));
     } catch (err) {
         console.error("Error fetching medicines:", err);
         res.status(500).json({ error: err.message || 'Failed to fetch medicines' });
@@ -72,7 +81,7 @@ exports.updateMedicine = async (req, res) => {
         const {
             name, genericName, category, batchNumber, quantity, costPrice, sellingPrice,
             expiryDate, minStockLevel, manufacturer, isControlled,
-            supplierId, dosage, barcode, rackLocation, rejectionReason // Added rejectionReason
+            supplierId, dosage, barcode, rackLocation, rejectionReason
         } = req.body;
 
         const medicine = await Medicine.findByPk(id);
