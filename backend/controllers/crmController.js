@@ -140,7 +140,7 @@ exports.getAIHealthInsights = async (req, res) => {
             Based on these exact metrics, perform the following:
             1. Suggest a 'healthProfile' based on their age and gender (e.g., "Senior Male Wellness Care", "Young Adult Preventive Health").
             2. Suggest a 'recommendedPerk'.
-            3. Calculate the 'autoBonus' loyalty points. Rule: Give 1 point for every Rs. 100 spent (Total Amount Spent / 100). Add a bonus of 10 points for every purchase made. If age > 60, add an extra 20 points. Provide the FINAL calculated integer value.
+            3. Calculate the 'autoBonus' loyalty points. Rule: Give 1 point for every Rs. 100 spent (Total Amount Spent / 100). Add a bonus of 10 points for every purchase made. Do not use age as a loyalty point criterion or add any age-based bonus. Provide the FINAL calculated integer value.
 
             Return ONLY a valid JSON object without any markdown code blocks, backticks, or extra text.
             Use EXACTLY this JSON format:
