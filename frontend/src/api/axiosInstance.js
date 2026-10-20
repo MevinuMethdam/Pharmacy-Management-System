@@ -14,7 +14,7 @@ axiosInstance.interceptors.request.use((config) => {
         config.headers.Authorization = `Bearer ${token}`;
     }
 
-    if (config.method === 'get') {
+    if (config.method === 'get' && !config.allowConcurrent) {
         const requestKey = generateRequestKey(config);
 
         if (pendingRequests.has(requestKey)) {
@@ -34,7 +34,7 @@ axiosInstance.interceptors.request.use((config) => {
 
 axiosInstance.interceptors.response.use(
     (response) => {
-        if (response.config.method === 'get') {
+        if (response.config.method === 'get' && !response.config.allowConcurrent) {
             const requestKey = generateRequestKey(response.config);
             pendingRequests.delete(requestKey);
         }
@@ -43,7 +43,7 @@ axiosInstance.interceptors.response.use(
     (error) => {
         if (axios.isCancel(error)) {
             console.log('✅ Background request cleanly cancelled by Global Interceptor:', error.message);
-        } else if (error.config && error.config.method === 'get') {
+        } else if (error.config && error.config.method === 'get' && !error.config.allowConcurrent) {
             const requestKey = generateRequestKey(error.config);
             pendingRequests.delete(requestKey);
         }
