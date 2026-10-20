@@ -15,6 +15,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import supplierBanner from '../../assets/supplier.png';
 import profileImg from '../../assets/profile.png';
 import logo from '../../assets/logo.png';
+import ReturnEvidence from '../../components/returns/ReturnEvidence';
 
 const socket = io('http://localhost:5000');
 
@@ -33,6 +34,11 @@ export default function SupplierDashboard() {
     const [payments, setPayments] = useState([]);
     const [products, setProducts] = useState([]);
     const [returns, setReturns] = useState([]);
+    const [viewingReturn, setViewingReturn] = useState(null);
+    const [returnRejectOpen, setReturnRejectOpen] = useState(false);
+    const [returnRejectReason, setReturnRejectReason] = useState('');
+    const [processingReturn, setProcessingReturn] = useState(false);
+    const returnBusy = useRef(false);
     const [supplierInfo, setSupplierInfo] = useState(null);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
@@ -174,9 +180,20 @@ export default function SupplierDashboard() {
                     axios.get('http://localhost:5000/api/notifications/restock-requests', config),
                     axios.get('http://localhost:5000/api/supplier-payments', config),
                     axios.get('http://localhost:5000/api/returns/history', config),
-                    axios.get('http://localhost:5000/api/medicines', config)
+                    axios.get('http://localhost:5000/api/medicines', config),
+                    axios.get('http://localhost:5000/api/purchases/my-purchases', config),
+                    axios.get('http://localhost:5000/api/suppliers', config)
                 ]);
                 if (disposed) return;
+                const purchaseResult = results[5];
+                if (purchaseResult.status === 'fulfilled' && Array.isArray(purchaseResult.value.data)) {
+                    setPurchases(purchaseResult.value.data);
+                }
+                const supplierResult = results[6];
+                if (supplierResult.status === 'fulfilled' && Array.isArray(supplierResult.value.data)) {
+                    const latestSupplier = supplierResult.value.data.find(row => String(row.id) === String(mySupplierId));
+                    if (latestSupplier) setSupplierInfo(latestSupplier);
+                }
                 results.slice(0, 2).forEach((result, index) => {
                     if (result.status === 'fulfilled' && Array.isArray(result.value.data)) {
                         receive(result.value.data.filter(belongsToSupplier), `notifications-${index}`);
@@ -202,6 +219,7 @@ export default function SupplierDashboard() {
                 const returnResult = results[3];
                 const medicines = results[4].status === 'fulfilled' && Array.isArray(results[4].value.data) ? results[4].value.data : [];
                 if (returnResult.status === 'fulfilled' && Array.isArray(returnResult.value.data)) {
+                    setReturns(returnResult.value.data.filter(r => String(r.supplierId) === String(mySupplierId)));
                     returnResult.value.data.filter(r => {
                         if (r.actionType !== 'Return to Supplier') return false;
                         if (r.supplierId != null) return String(r.supplierId) === String(mySupplierId);
@@ -237,6 +255,9 @@ export default function SupplierDashboard() {
         const timer = window.setInterval(refresh, 5000);
         socket.on('receive_notification', onNotification);
         socket.on('restock_updated', onRestock);
+        socket.on('returns_updated', onRestock);
+        socket.on('purchase_updated', onRestock);
+        socket.on('reports_updated', onRestock);
         socket.on('connect', refresh);
         window.addEventListener('focus', refresh);
         document.addEventListener('visibilitychange', refresh);
@@ -246,6 +267,9 @@ export default function SupplierDashboard() {
             window.clearInterval(timer);
             socket.off('receive_notification', onNotification);
             socket.off('restock_updated', onRestock);
+            socket.off('returns_updated', onRestock);
+            socket.off('purchase_updated', onRestock);
+            socket.off('reports_updated', onRestock);
             socket.off('connect', refresh);
             window.removeEventListener('focus', refresh);
             document.removeEventListener('visibilitychange', refresh);
@@ -296,6 +320,38 @@ export default function SupplierDashboard() {
             toast.error('Failed to load portal data');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const openReturnReview = (record) => {
+        setViewingReturn(record);
+        setReturnRejectOpen(false);
+        setReturnRejectReason('');
+    };
+
+    const handleReturnDecision = async (action) => {
+        if (!viewingReturn || returnBusy.current) return;
+        if (action === 'reject' && !returnRejectReason.trim()) return toast.error('Please enter a rejection reason.');
+        returnBusy.current = true;
+        setProcessingReturn(true);
+        try {
+            await axios.put(`http://localhost:5000/api/returns/${viewingReturn.id}/review/${action}`, {
+                reason: action === 'reject' ? returnRejectReason.trim() : undefined,
+                reviewVersion: viewingReturn.reviewVersion
+            }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+            toast.success(action === 'reject' ? 'Return request rejected. Admin can view your reason.' : viewingReturn.settlementType === 'replace' ? 'Replacement accepted. Returned quantity added to inventory.' : 'Cash refund accepted. Debit note settled.');
+            setViewingReturn(null);
+            await fetchPortalData();
+            refreshNotifications.current();
+        } catch (error) {
+            toast.error(error.response?.data?.error || 'Unable to process this return.');
+            if (error.response?.status === 409) {
+                setViewingReturn(null);
+                await fetchPortalData();
+            }
+        } finally {
+            returnBusy.current = false;
+            setProcessingReturn(false);
         }
     };
 
@@ -444,6 +500,15 @@ export default function SupplierDashboard() {
     const isAccountInactive = supplierInfo?.status === 'Inactive';
     const totalRevenue = purchases.reduce((acc, curr) => acc + Number(curr.totalAmount || 0), 0);
     const supplierDebitNotes = returns.filter(r => r.actionType === 'Return to Supplier');
+    const stockRequestRows = [
+        ...notifications.filter(n => n.title?.includes('Request') || n.title?.includes('Refill')),
+        ...supplierDebitNotes.filter(r => r.settlementType === 'replace').map(r => ({
+            id: `return-review-${r.id}`, returnRecord: r,
+            title: 'Returned Stock Replacement',
+            message: `${r.medicineName} · Batch: ${r.batchNumber || 'N/A'} · Quantity: ${r.quantity}. ${r.settlementReason || ''}`,
+            status: r.reviewStatus, createdAt: r.createdAt
+        }))
+    ].sort((a, b) => new Date(b.time || b.createdAt || 0) - new Date(a.time || a.createdAt || 0));
     const totalDebitNotes = supplierDebitNotes.reduce((acc, curr) => acc + Number(curr.totalValue || 0), 0);
 
     const allTransactions = [
@@ -474,6 +539,46 @@ export default function SupplierDashboard() {
     ];
     const finalGaugeData = totalRevenue > 0 ? gaugeData : [{ name: 'Collected', value: 0 }, { name: 'Pending', value: 100 }];
     const COLORS = ['#3b82f6', '#e2e8f0'];
+
+    const financeTrend = React.useMemo(() => {
+        const dayKey = value => {
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '';
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        };
+        const days = Array.from({ length: 7 }, (_, index) => {
+            const date = new Date();
+            date.setHours(12, 0, 0, 0);
+            date.setDate(date.getDate() - 6 + index);
+            return { key: dayKey(date), date: date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }), pending: 0, debit: 0, revenue: 0 };
+        });
+        const byDate = new Map(days.map(day => [day.key, day]));
+        purchases.forEach(invoice => {
+            const day = byDate.get(dayKey(invoice.invoiceDate || invoice.createdAt));
+            if (!day) return;
+            const total = Number(invoice.totalAmount || 0);
+            day.revenue += total;
+            day.pending += Math.max(0, total - Number(invoice.paidAmount || 0));
+        });
+        returns.filter(row => row.actionType === 'Return to Supplier').forEach(row => {
+            const day = byDate.get(dayKey(row.createdAt));
+            if (day) day.debit += Number(row.totalValue || 0);
+        });
+        return days;
+    }, [purchases, returns]);
+    const financeMetrics = [
+        { key: 'pending', label: 'Pending Dues', amount: Number(totalOutstanding),
+            percentage: totalRevenue > 0 ? Number(totalOutstanding) / totalRevenue * 100 : null,
+            caption: 'of invoice value', trendLabel: 'Unpaid invoices by invoice date', color: '#6366f1' },
+        { key: 'debit', label: 'Debit Notes', amount: totalDebitNotes,
+            percentage: totalRevenue > 0 ? totalDebitNotes / totalRevenue * 100 : null,
+            caption: 'of invoice value', trendLabel: 'Debit notes by return date', color: '#8b5cf6' },
+        { key: 'revenue', label: 'Revenue', amount: totalRevenue,
+            percentage: totalRevenue > 0 ? Number(collectionRate) : null,
+            caption: 'collected', trendLabel: 'Net invoices by invoice date', color: '#06b6d4' }
+    ];
+    const financeMoney = amount => Number(amount).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const financeCompact = amount => new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(amount);
 
     const hasData = purchases && purchases.length > 0;
 
@@ -589,8 +694,8 @@ export default function SupplierDashboard() {
                 </div>
             </aside>
 
-            <div className="flex-1 flex flex-col overflow-hidden relative z-10">
-                <div className="flex justify-between items-center px-8 pt-6 pb-2 z-30 bg-transparent">
+            <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative z-10">
+                <div className="flex shrink-0 justify-between items-center px-8 pt-6 pb-2 z-30 bg-transparent">
                     <div className="hidden md:block">
                         <span className="text-[13px] font-bold text-slate-400 tracking-wide bg-white/50 px-3 py-1 rounded-full backdrop-blur-sm border border-slate-200/50">
                             {formattedDate}
@@ -661,7 +766,7 @@ export default function SupplierDashboard() {
                     </div>
                 </div>
 
-                <main className="flex-1 overflow-x-hidden overflow-y-auto px-8 pb-8 pt-2 relative custom-scrollbar">
+                <main className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto px-8 pb-8 pt-2 relative custom-scrollbar">
                     {isAccountInactive && (
                         <div className="mb-6 bg-rose-500 text-white p-4 rounded-2xl flex items-center gap-4 shadow-lg shadow-rose-500/20 relative z-20">
                             <AlertTriangle size={28} className="text-white flex-shrink-0" />
@@ -749,34 +854,52 @@ export default function SupplierDashboard() {
                                         </div>
                                     </div>
 
-                                    <div className="bg-white/40 backdrop-blur-xl p-6 rounded-[28px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/60 flex flex-col h-[240px] min-w-0 transition-transform duration-300 hover:-translate-y-1">
+                                    <div className="bg-white/40 backdrop-blur-xl p-5 rounded-[28px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/60 flex flex-col min-h-[240px] min-w-0 transition-transform duration-300 hover:-translate-y-1">
                                         <div className="flex justify-between items-start mb-3">
                                             <h3 className="text-[14px] font-bold text-slate-800">Financial Tracking</h3>
                                             <button className="text-slate-400 hover:text-slate-600"><Eye size={16}/></button>
                                         </div>
-                                        <div className="flex items-center justify-between flex-1">
-                                            <div className="space-y-2.5 flex-1 pr-2">
-                                                <div className="bg-slate-50/80 px-4 py-2.5 rounded-[20px] border border-slate-100">
-                                                    <p className="text-[11px] font-bold text-slate-400 mb-0.5 uppercase">Pending Dues</p>
-                                                    <p className="text-[17px] font-bold text-slate-800 leading-none">LKR {(totalOutstanding/1000).toFixed(1)}k</p>
+                                        <div className="grid grid-cols-3 gap-2 flex-1 items-start">
+                                            {financeMetrics.map(metric => (
+                                                <div key={metric.key} className="min-w-0 flex flex-col items-center text-center" title={`${metric.label}: LKR ${financeMoney(metric.amount)}`}>
+                                                    <div className="relative w-full max-w-[86px] aspect-square">
+                                                        <svg viewBox="0 0 100 100" className="w-full h-full" aria-hidden="true">
+                                                            <defs>
+                                                                <linearGradient id={`supplier-finance-ring-${metric.key}`} x1="0" y1="0" x2="1" y2="1">
+                                                                    <stop offset="0%" stopColor="#8b5cf6" />
+                                                                    <stop offset="100%" stopColor="#22d3ee" />
+                                                                </linearGradient>
+                                                            </defs>
+                                                            <circle cx="50" cy="50" r="43" fill="none" stroke="#e9eef5" strokeWidth="5" />
+                                                            <circle cx="50" cy="50" r="43" fill="none" stroke={`url(#supplier-finance-ring-${metric.key})`} strokeWidth="5" strokeLinecap="round" pathLength="100" strokeDasharray={`${Math.min(100, Math.max(0, metric.percentage || 0))} 100`} transform="rotate(-90 50 50)" style={{ transition: 'stroke-dasharray 600ms ease' }} />
+                                                        </svg>
+                                                        <div className="absolute inset-0 flex flex-col items-center justify-center px-2">
+                                                            <span className="text-[8px] font-semibold text-slate-400">LKR</span>
+                                                            <span className="text-[15px] leading-tight font-bold tracking-tight text-slate-700 tabular-nums">{financeCompact(metric.amount)}</span>
+                                                        </div>
+                                                    </div>
+                                                    <p className="mt-1 text-[9px] font-bold text-slate-600 leading-tight">{metric.label}</p>
+                                                    <div className="w-full h-[34px] mt-2" title={`${metric.trendLabel} · last 7 days`}>
+                                                        <ResponsiveContainer width="100%" height="100%">
+                                                            <AreaChart data={financeTrend} margin={{ top: 4, right: 2, bottom: 0, left: 2 }}>
+                                                                <defs>
+                                                                    <linearGradient id={`supplier-finance-area-${metric.key}`} x1="0" y1="0" x2="0" y2="1">
+                                                                        <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.45} />
+                                                                        <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.02} />
+                                                                    </linearGradient>
+                                                                </defs>
+                                                                <XAxis dataKey="date" hide />
+                                                                <RechartsTooltip formatter={value => [`LKR ${financeMoney(value)}`, metric.trendLabel]} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '11px' }} wrapperStyle={{ zIndex: 30 }} />
+                                                                <Area type="linear" dataKey={metric.key} stroke="#22c4d4" strokeWidth={1.5} fill={`url(#supplier-finance-area-${metric.key})`} isAnimationActive={false} />
+                                                            </AreaChart>
+                                                        </ResponsiveContainer>
+                                                    </div>
+                                                    <p className="mt-1 text-[17px] leading-tight font-semibold tabular-nums" style={{ color: metric.color }}>{metric.percentage == null ? '—' : `${metric.percentage.toFixed(0)}%`}</p>
+                                                    <p className="text-[8px] leading-tight text-slate-400 mt-0.5">{metric.caption}</p>
                                                 </div>
-                                                <div className="bg-rose-50/50 px-4 py-2.5 rounded-[20px] border border-rose-100/50">
-                                                    <p className="text-[11px] font-bold text-slate-400 mb-0.5 uppercase">Debit Notes</p>
-                                                    <p className="text-[17px] font-bold text-rose-600 leading-none">LKR {(totalDebitNotes/1000).toFixed(1)}k</p>
-                                                </div>
-                                            </div>
-                                            <div className="relative w-[100px] h-[100px] flex items-center justify-center shrink-0">
-                                                <ResponsiveContainer width="100%" height="100%">
-                                                    <PieChart>
-                                                        <Pie data={[{value: totalRevenue > 0 ? totalRevenue : 1}]} cx="50%" cy="50%" innerRadius={36} outerRadius={48} dataKey="value" stroke="none" fill={totalRevenue > 0 ? "#10b981" : "#e2e8f0"} />
-                                                    </PieChart>
-                                                </ResponsiveContainer>
-                                                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                                    <span className="text-[10px] text-slate-400 font-bold mb-0.5">Revenue</span>
-                                                    <span className="text-[15px] font-bold text-slate-800 leading-none">{(totalRevenue/1000).toFixed(0)}k</span>
-                                                </div>
-                                            </div>
+                                            ))}
                                         </div>
+                                        <p className="text-[8px] text-slate-400 text-center mt-2">Daily invoice / debit-note amounts · Last 7 days</p>
                                     </div>
                                 </div>
                                 <div className="bg-white/30 backdrop-blur-2xl rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 overflow-hidden mt-6">
@@ -908,7 +1031,7 @@ export default function SupplierDashboard() {
                                 initial="initial"
                                 animate="animate"
                                 exit="exit"
-                                className="max-w-7xl mx-auto flex flex-col h-full pb-10 relative z-20"
+                                className="max-w-7xl mx-auto flex flex-col min-h-full pb-10 relative z-20"
                             >
                                 <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
                                     <div>
@@ -927,7 +1050,7 @@ export default function SupplierDashboard() {
                                     </div>
                                 </div>
 
-                                <div className="bg-white/30 backdrop-blur-2xl rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 overflow-hidden flex-1">
+                                <div className="bg-white/30 backdrop-blur-2xl rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 overflow-hidden shrink-0">
                                     <div className="overflow-x-auto px-8 py-4">
                                         <table className="w-full text-left border-collapse min-w-[700px]">
                                             <thead>
@@ -974,7 +1097,7 @@ export default function SupplierDashboard() {
                                 initial="initial"
                                 animate="animate"
                                 exit="exit"
-                                className="max-w-7xl mx-auto flex flex-col h-full pb-10 relative z-20"
+                                className="max-w-7xl mx-auto flex flex-col min-h-full pb-10 relative z-20"
                             >
                                 <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
                                     <div>
@@ -993,7 +1116,7 @@ export default function SupplierDashboard() {
                                     </div>
                                 </div>
 
-                                <div className="bg-white/30 backdrop-blur-2xl rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 overflow-hidden flex-1">
+                                <div className="bg-white/30 backdrop-blur-2xl rounded-[32px] shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] border border-white/50 overflow-hidden shrink-0">
                                     <div className="overflow-x-auto px-8 py-4">
                                         <table className="w-full text-left border-collapse min-w-[700px]">
                                             <thead>
@@ -1015,12 +1138,18 @@ export default function SupplierDashboard() {
                                                                 <p className="text-[11px] text-slate-500 font-mono mt-0.5">Batch: {r.batchNumber || 'N/A'} | Qty: {r.quantity}</p>
                                                             </td>
                                                             <td className="px-3 first:pl-0 last:pr-0 py-4 align-top text-[13px] text-slate-600 font-medium">{new Date(r.createdAt).toLocaleDateString()}</td>
-                                                            <td className="px-3 first:pl-0 last:pr-0 py-4 align-top text-[12px] text-slate-600 leading-relaxed max-w-[250px]">{r.reason || 'Returned as per policy.'}</td>
+                                                            <td className="px-3 first:pl-0 last:pr-0 py-4 align-top text-[12px] text-slate-600 leading-relaxed max-w-[250px]"><p>{r.reason || 'Returned as per policy.'}</p>
+                                                                {r.settlementReason && <p className="mt-2 whitespace-pre-wrap break-words"><strong>{r.settlementType === 'refund' ? 'Cash refund request' : 'Replacement request'}:</strong> {r.settlementReason}</p>}
+                                                                {r.rejectionReason && <p className="mt-2 text-rose-600 whitespace-pre-wrap break-words"><strong>Rejected:</strong> {r.rejectionReason}</p>}
+                                                                <ReturnEvidence adjustmentId={r.id} hasEvidence={r.hasEvidence} reviewVersion={r.reviewVersion} />
+                                                            </td>
                                                             <td className="px-3 first:pl-0 last:pr-0 py-4 align-top text-[14px] font-bold text-rose-600 text-right">-{Number(r.totalValue).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
                                                             <td className="px-3 first:pl-0 last:pr-0 py-4 align-top text-center">
-                                                                <span className={`inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${r.status === 'Pending' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                                                    {r.status}
+                                                                <span className={`inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${r.reviewStatus === 'Rejected' ? 'bg-rose-100 text-rose-700' : r.reviewStatus === 'Reviewing' ? 'bg-blue-100 text-blue-700' : r.status === 'Pending' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                                                    {r.reviewStatus || r.status}
                                                                 </span>
+                                                                {r.settlementType === 'refund' && <button type="button" onClick={() => openReturnReview(r)} className="mt-2 rounded-full bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-700">{r.reviewStatus === 'Reviewing' ? 'Review Refund' : 'View Refund'}</button>}
+                                                                {r.settlementType === 'replace' && <p className="mt-2 text-[10px] text-violet-600">Review in Stock Requests</p>}
                                                             </td>
                                                         </tr>
                                                     ))}
@@ -1169,7 +1298,7 @@ export default function SupplierDashboard() {
                                 <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
                                     <div>
                                         <h2 className="text-[24px] font-bold text-slate-800 flex items-center gap-2"><PackagePlus className="text-blue-500"/> Stock Requests</h2>
-                                        <p className="text-[13px] font-medium text-slate-500 mt-1">Review and process stock refill requests from the pharmacy.</p>
+                                        <p className="text-[13px] font-medium text-slate-500 mt-1">Review stock refill and returned-stock replacement requests from the pharmacy.</p>
                                     </div>
                                     <button onClick={() => handleGenerateReport('Stock Requests')} className="flex shrink-0 items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[13px] font-bold text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-all shadow-sm cursor-pointer">
                                         <Download size={16} className="text-blue-500" /> Generate Report
@@ -1190,12 +1319,12 @@ export default function SupplierDashboard() {
                                             </thead>
                                             <tbody>
                                             {loading ? <tr><td colSpan="5" className="text-center py-10 text-slate-400">Loading...</td></tr> :
-                                                notifications.filter(n => n.title?.includes('Request') || n.title?.includes('Refill')).length === 0 ? <tr><td colSpan="5" className="text-center py-10 text-slate-400">No Requests Found.</td></tr> :
-                                                    notifications.filter(n => n.title?.includes('Request') || n.title?.includes('Refill')).map((req, idx) => (
+                                                stockRequestRows.length === 0 ? <tr><td colSpan="5" className="text-center py-10 text-slate-400">No Requests Found.</td></tr> :
+                                                    stockRequestRows.map((req, idx) => (
                                                         <tr key={req.id || idx} className={`border-b border-slate-100 hover:bg-slate-50/80 ${req.status === 'Accepted' ? 'bg-emerald-50/30' : req.status === 'Rejected' ? 'bg-rose-50/30' : 'bg-amber-50/30'}`}>
                                                             <td className="p-4 text-[13px] text-slate-600 font-medium">{new Date(req.time || req.createdAt).toLocaleDateString()}</td>
-                                                            <td className="p-4 text-[13px] font-bold text-slate-800">{req.title}</td>
-                                                            <td className="p-4 text-[12px] text-slate-500">{req.message}</td>
+                                                            <td className="p-4 text-[13px] font-bold text-slate-800">{req.title}{req.returnRecord && <span className="block mt-1 text-[10px] font-semibold text-violet-600">RETURNED STOCK · NOT A NORMAL REFILL</span>}</td>
+                                                            <td className="p-4 text-[12px] text-slate-500">{req.message}{req.returnRecord && <ReturnEvidence adjustmentId={req.returnRecord.id} hasEvidence={req.returnRecord.hasEvidence} reviewVersion={req.returnRecord.reviewVersion} />}</td>
                                                             <td className="p-4 text-center">
                                                                 <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold border ${req.status === 'Accepted' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : req.status === 'Rejected' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-700 border-amber-200 animate-pulse'}`}>
                                                                     {req.status || 'Pending'}
@@ -1204,6 +1333,10 @@ export default function SupplierDashboard() {
                                                             <td className="p-4 text-center">
                                                                 <button
                                                                     onClick={() => {
+                                                                        if (req.returnRecord) {
+                                                                            openReturnReview(req.returnRecord);
+                                                                            return;
+                                                                        }
                                                                         setViewingRequest(req);
                                                                         setShowRequestReject(false);
                                                                         setRequestRejectReason('');
@@ -1363,6 +1496,46 @@ export default function SupplierDashboard() {
                                 <p className="text-[12px] text-slate-600 font-medium">
                                     <span className="font-bold text-slate-700">Reason:</span> {viewingReceipt.rejectionReason || 'No specific reason provided.'}
                                 </p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {viewingReturn && (
+                <div className="fixed inset-0 z-[150] bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4">
+                    <div role="dialog" aria-modal="true" aria-labelledby="supplier-return-title" className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
+                        <div className="flex justify-between items-start gap-4">
+                            <div>
+                                <p className="text-[10px] font-bold tracking-wider text-violet-600 uppercase">Returned stock · Debit Note #{viewingReturn.id}</p>
+                                <h2 id="supplier-return-title" className="mt-1 text-xl font-bold text-slate-800">{viewingReturn.settlementType === 'replace' ? 'Review Replacement' : 'Review Cash Refund'}</h2>
+                            </div>
+                            <button type="button" disabled={processingReturn} onClick={() => setViewingReturn(null)} aria-label="Close review" className="rounded-full p-2 hover:bg-slate-100 disabled:opacity-50"><X size={20} /></button>
+                        </div>
+                        <div className="mt-5 rounded-2xl bg-slate-50 border border-slate-100 p-4 text-sm text-slate-600 space-y-2">
+                            <p className="font-bold text-slate-800">{viewingReturn.medicineName}</p>
+                            <p>Batch: {viewingReturn.batchNumber || 'N/A'} · Quantity: <strong>{viewingReturn.quantity}</strong></p>
+                            <p>Debit value: LKR {Number(viewingReturn.totalValue).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                            <p className="text-xs text-violet-600">{viewingReturn.settlementType === 'replace' ? 'This replaces returned stock. It is not a normal refill or a new purchase.' : 'The returned quantity was already removed from pharmacy stock.'}</p>
+                        </div>
+                        <p className="mt-5 text-xs font-bold text-slate-500 uppercase">Admin reason</p>
+                        <p className="mt-2 text-sm text-slate-700 whitespace-pre-wrap break-words">{viewingReturn.settlementReason}</p>
+                        <ReturnEvidence adjustmentId={viewingReturn.id} hasEvidence={viewingReturn.hasEvidence} reviewVersion={viewingReturn.reviewVersion} />
+                        {viewingReturn.reviewStatus === 'Rejected' && <p className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700 whitespace-pre-wrap break-words"><strong>Rejected:</strong> {viewingReturn.rejectionReason}</p>}
+                        {viewingReturn.reviewStatus === 'Accepted' && <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">Accepted · {viewingReturn.settlementType === 'replace' ? 'Replacement stock added' : 'Cash refund settled'}</p>}
+                        {viewingReturn.reviewStatus === 'Reviewing' && (
+                            <div className="mt-6">
+                                {returnRejectOpen ? <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4">
+                                    <label htmlFor="supplier-return-reject" className="text-sm font-semibold text-rose-700">Rejection reason *</label>
+                                    <textarea id="supplier-return-reject" autoFocus maxLength={2000} rows={3} value={returnRejectReason} disabled={processingReturn} onChange={e => setReturnRejectReason(e.target.value)} className="mt-2 w-full rounded-xl border border-rose-200 bg-white p-3 text-sm outline-none focus:ring-2 focus:ring-rose-200" />
+                                    <div className="mt-3 flex gap-2">
+                                        <button type="button" disabled={processingReturn} onClick={() => setReturnRejectOpen(false)} className="flex-1 rounded-full bg-white py-2 text-sm font-semibold text-slate-600">Cancel</button>
+                                        <button type="button" disabled={processingReturn || isAccountInactive || !returnRejectReason.trim()} onClick={() => handleReturnDecision('reject')} className="flex-1 rounded-full bg-rose-500 py-2 text-sm font-semibold text-white disabled:opacity-50">{processingReturn ? 'Processing...' : 'Confirm Rejection'}</button>
+                                    </div>
+                                </div> : <div className="flex gap-3">
+                                    <button type="button" disabled={processingReturn || isAccountInactive} onClick={() => setReturnRejectOpen(true)} className="flex-1 rounded-full bg-rose-50 border border-rose-100 py-3 text-sm font-semibold text-rose-600 disabled:opacity-50">Reject</button>
+                                    <button type="button" disabled={processingReturn || isAccountInactive} onClick={() => handleReturnDecision('accept')} className="flex-1 rounded-full bg-emerald-500 py-3 text-sm font-semibold text-white disabled:opacity-50">{processingReturn ? 'Processing...' : viewingReturn.settlementType === 'refund' ? 'Accept Cash Refund' : 'Accept Replacement'}</button>
+                                </div>}
                             </div>
                         )}
                     </div>
@@ -1604,4 +1777,5 @@ export default function SupplierDashboard() {
         </div>
     );
 }
+
 
