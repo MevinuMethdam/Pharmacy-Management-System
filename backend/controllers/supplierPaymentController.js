@@ -41,7 +41,7 @@ exports.acceptPayment = async (req, res) => {
     const t = await sequelize.transaction();
     try {
         const paymentId = req.params.id;
-        const payment = await SupplierPayment.findByPk(paymentId, { transaction: t });
+        const payment = await SupplierPayment.findByPk(paymentId, { transaction: t, lock: t.LOCK.UPDATE });
 
         if (!payment) {
             await t.rollback();
@@ -54,7 +54,7 @@ exports.acceptPayment = async (req, res) => {
 
         await payment.update({ status: 'Accepted' }, { transaction: t });
 
-        const supplier = await Supplier.findByPk(payment.supplierId, { transaction: t });
+        const supplier = await Supplier.findByPk(payment.supplierId, { transaction: t, lock: t.LOCK.UPDATE });
         if (supplier) {
             await supplier.update({
                 totalOutstanding: Number(supplier.totalOutstanding || 0) - Number(payment.amount)
@@ -69,7 +69,7 @@ exports.acceptPayment = async (req, res) => {
                 paymentStatus: { [Op.ne]: 'Paid' }
             },
             order: [['invoiceDate', 'ASC']],
-            transaction: t
+            transaction: t, lock: t.LOCK.UPDATE
         });
 
         for (let invoice of unpaidInvoices) {
@@ -115,7 +115,7 @@ exports.rejectPayment = async (req, res) => {
             return res.status(400).json({ error: 'Rejection reason is absolutely required.' });
         }
 
-        const payment = await SupplierPayment.findByPk(paymentId, { transaction: t });
+        const payment = await SupplierPayment.findByPk(paymentId, { transaction: t, lock: t.LOCK.UPDATE });
 
         if (!payment) {
             await t.rollback();
