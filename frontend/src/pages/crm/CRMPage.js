@@ -49,7 +49,8 @@ export default function CRMPage() {
 
         try {
             const res = await axios.get('http://localhost:5000/api/crm/customers', {
-                signal: currentController.signal
+                signal: currentController.signal,
+                allowConcurrent: true
             });
 
             if (mounted.current && version === requestVersion.current && !currentController.signal.aborted) {
@@ -81,6 +82,7 @@ export default function CRMPage() {
         const socket = io('http://localhost:5000');
         socket.on('receive_notification', refreshCustomers);
         socket.on('connect', refreshCustomers);
+        socket.on('crm_updated', refreshCustomers);
         window.addEventListener('focus', refreshCustomers);
         document.addEventListener('visibilitychange', refreshCustomers);
         const timer = window.setInterval(refreshCustomers, 5000);
@@ -96,6 +98,7 @@ export default function CRMPage() {
             document.removeEventListener('visibilitychange', refreshCustomers);
             socket.off('receive_notification', refreshCustomers);
             socket.off('connect', refreshCustomers);
+            socket.off('crm_updated', refreshCustomers);
             socket.disconnect();
         };
     }, [fetchData]);
