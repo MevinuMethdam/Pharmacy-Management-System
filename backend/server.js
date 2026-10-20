@@ -126,7 +126,7 @@ require('./utils/cronJobs')(app);
 
 const PORT = process.env.PORT || 5000;
 
-sequelize.sync({ alter: true })
+sequelize.sync()
     .then(() => {
         console.log('✅ Database Synchronized! All tables are ready.');
         server.listen(PORT, () => {
