@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import CashierLayout from '../../components/layout/CashierLayout';
 import { Search, Plus, Users, Edit, Trash2, Phone, Mail, MapPin, X, Star, CreditCard, AlertCircle } from 'lucide-react';
 import axios from '../../api/axiosInstance';
 import toast from 'react-hot-toast';
+import io from 'socket.io-client';
 
 export default function CashierCRMPage() {
     const [searchQuery, setSearchQuery] = useState('');
@@ -28,31 +29,77 @@ export default function CashierCRMPage() {
         loyaltyPoints: 0
     });
 
-    const fetchData = async (controller = null) => {
-        setLoading(true);
+    const activeRequest = useRef(null);
+    const requestVersion = useRef(0);
+    const mounted = useRef(false);
+    const foregroundPending = useRef(false);
+
+    const fetchData = useCallback(async (controller = null, silent = false) => {
+        if (!mounted.current || (silent && activeRequest.current)) return;
+
+        activeRequest.current?.abort();
+        const currentController = controller || new AbortController();
+        const version = ++requestVersion.current;
+        activeRequest.current = currentController;
+        foregroundPending.current = !silent;
+
+        if (!silent) setLoading(true);
+
         try {
-            const config = {
-                ...(controller ? { signal: controller.signal } : {})
-            };
-            const res = await axios.get('http://localhost:5000/api/crm/customers', config);
-            setCustomers(res.data || []);
+            const res = await axios.get('http://localhost:5000/api/crm/customers', {
+                signal: currentController.signal,
+                allowConcurrent: true
+            });
+
+            if (mounted.current && version === requestVersion.current && !currentController.signal.aborted) {
+                setCustomers(res.data || []);
+            }
         } catch (err) {
-            if (!axios.isCancel(err)) {
+            if (mounted.current && version === requestVersion.current &&
+                !currentController.signal.aborted && !axios.isCancel(err) && !silent) {
                 toast.error('Failed to load CRM data');
             }
         } finally {
-            setLoading(false);
+            if (version === requestVersion.current) {
+                activeRequest.current = null;
+                foregroundPending.current = false;
+                if (mounted.current && !silent) setLoading(false);
+            }
         }
-    };
+    }, []);
 
     useEffect(() => {
+        mounted.current = true;
         const controller = new AbortController();
         fetchData(controller);
 
-        return () => {
-            controller.abort();
+        const refreshCustomers = () => {
+            if (!document.hidden) fetchData(null, true);
         };
-    }, []);
+
+        const socket = io('http://localhost:5000');
+        socket.on('receive_notification', refreshCustomers);
+        socket.on('connect', refreshCustomers);
+        socket.on('crm_updated', refreshCustomers);
+        window.addEventListener('focus', refreshCustomers);
+        document.addEventListener('visibilitychange', refreshCustomers);
+        const timer = window.setInterval(refreshCustomers, 5000);
+
+        return () => {
+            mounted.current = false;
+            requestVersion.current += 1;
+            controller.abort();
+            activeRequest.current?.abort();
+            foregroundPending.current = false;
+            window.clearInterval(timer);
+            window.removeEventListener('focus', refreshCustomers);
+            document.removeEventListener('visibilitychange', refreshCustomers);
+            socket.off('receive_notification', refreshCustomers);
+            socket.off('connect', refreshCustomers);
+            socket.off('crm_updated', refreshCustomers);
+            socket.disconnect();
+        };
+    }, [fetchData]);
 
     const handleNicChange = (val, currentAge) => {
         const nicValue = val.toUpperCase();
