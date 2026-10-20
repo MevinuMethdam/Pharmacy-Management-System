@@ -33,6 +33,25 @@ const PHARMACIST_LINKS = [
     { to: '/pharmacist/ai-outbreak-radar', label: 'AI Outbreak Radar', icon: Activity }
 ];
 
+const isPharmacistNotification = (note) => {
+    if (!note || note.isRead === true || note.isRead === 1) return false;
+    const title = String(note.title || '').trim();
+    const target = String(note.target || '').toLowerCase();
+    if (/^\[SUP:/i.test(title) || target === 'supplier' || target === 'cashier') return false;
+    return /\b(medicine|medicines|inventory|stock|restock|refill|expiry|expired|expiring|purchase|purchases|grn|return|returns|returned|replacement|disposal|disposed|write-off|debit note|rack|outbreak)\b/i.test(title);
+};
+
+const filterPharmacistNotifications = (items) => {
+    const seen = new Set();
+    return (Array.isArray(items) ? items : []).filter(note => {
+        if (!isPharmacistNotification(note) || note.id == null) return false;
+        const id = String(note.id);
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+    });
+};
+
 export default function PharmacistLayout({ children }) {
     const { logout, user } = useContext(AuthContext);
     const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -56,7 +75,7 @@ export default function PharmacistLayout({ children }) {
 
     const [notifications, setNotifications] = useState([]);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-    const [unreadCount, setUnreadCount] = useState(0);
+    const unreadCount = notifications.length;
 
     const navRef = useRef(null);
 
@@ -91,8 +110,7 @@ export default function PharmacistLayout({ children }) {
                 const res = await api.get('http://localhost:5000/api/notifications/unread', config);
 
                 if (isMounted) {
-                    setNotifications(res.data);
-                    setUnreadCount(res.data.length);
+                    setNotifications(filterPharmacistNotifications(res.data));
                 }
             } catch (error) {
                 if (axios.isCancel(error)) {
@@ -112,9 +130,8 @@ export default function PharmacistLayout({ children }) {
         }, 300000);
 
         socket.on('receive_notification', (data) => {
-            if (isMounted) {
-                setNotifications((prev) => [data, ...prev]);
-                setUnreadCount((prev) => prev + 1);
+            if (isMounted && isPharmacistNotification(data)) {
+                setNotifications((prev) => filterPharmacistNotifications([data, ...prev]));
             }
         });
 
@@ -134,8 +151,7 @@ export default function PharmacistLayout({ children }) {
 
             await api.put(`http://localhost:5000/api/notifications/${id}/read`, {}, config);
 
-            setNotifications(prev => prev.filter(n => n.id !== id));
-            setUnreadCount(prev => Math.max(0, prev - 1));
+            setNotifications(prev => prev.filter(n => String(n.id) !== String(id)));
 
         } catch (error) {
             console.error("Failed to mark as read");
@@ -261,9 +277,9 @@ export default function PharmacistLayout({ children }) {
                             >
                                 <Bell size={18} strokeWidth={2.5} />
                                 {unreadCount > 0 && (
-                                    <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500 border-2 border-white"></span>
+                                    <span className="absolute -top-1.5 -right-1.5 flex min-w-[20px] h-5" aria-label={`${unreadCount} unread notifications`}>
+                                        <span className="animate-ping absolute inset-0 rounded-full bg-blue-400 opacity-60"></span>
+                                        <span className="relative inline-flex min-w-[20px] h-5 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold leading-none text-white border-2 border-white">{unreadCount > 99 ? '99+' : unreadCount}</span>
                                     </span>
                                 )}
                             </button>
@@ -273,7 +289,7 @@ export default function PharmacistLayout({ children }) {
                                     <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex justify-between items-center">
                                         <h3 className="text-sm font-bold text-slate-800">Notifications</h3>
                                         {unreadCount > 0 && (
-                                            <span className="text-[10px] font-bold bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full shadow-sm">{unreadCount} New</span>
+                                            <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full shadow-sm">{unreadCount} New</span>
                                         )}
                                     </div>
                                     <div className="max-h-[300px] overflow-y-auto hover-scroll">
@@ -349,7 +365,7 @@ export default function PharmacistLayout({ children }) {
                             </div>
                         </div>
                         <h2 className="text-[18px] font-extrabold text-slate-800 tracking-tight">
-                            {user?.firstName ? `${user.firstName} ${user.lastName}` : 'Anna Morrison'}
+                            {user?.firstName ? `${user.firstName} ${user.lastName}` : 'Pharmacist'}
                         </h2>
                         <p className="text-[13px] font-medium text-slate-400 mt-0.5">
                             {user?.role || 'Pharmacist'}
@@ -405,29 +421,7 @@ export default function PharmacistLayout({ children }) {
                                     </div>
                                 ))
                             ) : (
-                                <>
-                                    <div className="flex gap-3 items-start p-1 cursor-pointer group">
-                                        <div className="p-1.5 bg-rose-50 text-rose-400 rounded-full mt-0.5 group-hover:scale-110 transition-transform"><ShieldAlert size={12} /></div>
-                                        <div>
-                                            <p className="text-[12px] font-bold text-slate-700 group-hover:text-sky-600 transition-colors">Sys - Check Low Stock</p>
-                                            <p className="text-[10px] text-slate-400 mt-0.5">24 Sep 2026, Friday</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-3 items-0 p-1 cursor-pointer group">
-                                        <div className="p-1.5 bg-sky-50 text-sky-400 rounded-full mt-0.5 group-hover:scale-110 transition-transform"><FileText size={12} /></div>
-                                        <div>
-                                            <p className="text-[12px] font-bold text-slate-700 group-hover:text-sky-600 transition-colors">Rx - Verify Prescriptions</p>
-                                            <p className="text-[10px] text-slate-400 mt-0.5">29 Sep 2026, Wednesday</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-3 items-start p-1 cursor-pointer group">
-                                        <div className="p-1.5 bg-indigo-50 text-indigo-400 rounded-full mt-0.5 group-hover:scale-110 transition-transform"><Activity size={12} /></div>
-                                        <div>
-                                            <p className="text-[12px] font-bold text-slate-700 group-hover:text-sky-600 transition-colors">Pharma - System Audit</p>
-                                            <p className="text-[10px] text-slate-400 mt-0.5">05 Oct 2026, Monday</p>
-                                        </div>
-                                    </div>
-                                </>
+                                <p className="text-[12px] text-slate-400">No new notifications</p>
                             )}
                         </div>
                     </div>
