@@ -5,6 +5,7 @@ import PharmacistLayout from '../../components/layout/PharmacistLayout';
 import { Receipt, Plus, Trash2, Calendar, FileText, Package, Search, X, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import io from 'socket.io-client';
 import api from '../../api/axiosInstance';
 import { inventoryApi } from '../../api/inventoryApi';
 
@@ -130,6 +131,36 @@ export default function PharmacistPurchasesPage() {
 
         return () => {
             controller.abort();
+        };
+    }, []);
+
+    useEffect(() => {
+        const socket = io('http://localhost:5000');
+        const controller = new AbortController();
+        let sequence = 0;
+        const refreshPurchases = async () => {
+            const current = ++sequence;
+            try {
+                const { data } = await api.get('/purchases', { signal: controller.signal });
+                if (!controller.signal.aborted && current === sequence) setPurchases(data || []);
+            } catch (error) {
+                if (!controller.signal.aborted) console.error('Purchase refresh failed:', error);
+            }
+        };
+        const onVisible = () => { if (!document.hidden) refreshPurchases(); };
+        socket.on('purchase_updated', refreshPurchases);
+        socket.on('connect', refreshPurchases);
+        window.addEventListener('focus', refreshPurchases);
+        document.addEventListener('visibilitychange', onVisible);
+        const timer = window.setInterval(onVisible, 15000);
+        return () => {
+            controller.abort();
+            window.clearInterval(timer);
+            window.removeEventListener('focus', refreshPurchases);
+            document.removeEventListener('visibilitychange', onVisible);
+            socket.off('purchase_updated', refreshPurchases);
+            socket.off('connect', refreshPurchases);
+            socket.disconnect();
         };
     }, []);
 
@@ -544,7 +575,13 @@ export default function PharmacistPurchasesPage() {
                                             </td>
 
                                             <td className="px-3 py-4 align-top pt-5">
-                                                {isPaid && (
+                                                {(purchase.items || []).filter(item => item.refundedQuantity > 0).map(item => (
+                                                    <div key={`refund-${item.id}`} className="mb-2">
+                                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-100/80 text-emerald-700 border border-emerald-200/50"><CheckCircle size={12} /> Refunded</span>
+                                                        <p className="text-[10px] text-emerald-700 mt-1 break-words">{item.medicine?.name || purchase.name} · {item.batchNumber} · Qty {item.refundedQuantity}</p>
+                                                    </div>
+                                                ))}
+                                                {isPaid && !(purchase.hasRefund && Number(purchase.totalAmount) === 0) && (
                                                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-100/80 text-emerald-700 border border-emerald-200/50">
                                                         <CheckCircle size={12} strokeWidth={3} /> Paid
                                                     </span>
