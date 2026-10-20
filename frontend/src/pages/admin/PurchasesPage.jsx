@@ -575,7 +575,13 @@ export default function PurchasesPage() {
                                             </td>
 
                                             <td className="px-3 py-4 align-top pt-5">
-                                                {isPaid && (
+                                                {(purchase.items || []).filter(item => item.refundedQuantity > 0).map(item => (
+                                                    <div key={`refund-${item.id}`} className="mb-2">
+                                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-100/80 text-emerald-700 border border-emerald-200/50"><CheckCircle size={12} /> Refunded</span>
+                                                        <p className="text-[10px] text-emerald-700 mt-1 break-words">{item.medicine?.name || purchase.name} · {item.batchNumber} · Qty {item.refundedQuantity}</p>
+                                                    </div>
+                                                ))}
+                                                {isPaid && !(purchase.hasRefund && Number(purchase.totalAmount) === 0) && (
                                                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-100/80 text-emerald-700 border border-emerald-200/50">
                                                         <CheckCircle size={12} strokeWidth={3} /> Paid
                                                     </span>
