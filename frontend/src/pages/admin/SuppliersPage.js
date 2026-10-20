@@ -9,6 +9,7 @@ import {
 import axios from '../../api/axiosInstance';
 import toast from 'react-hot-toast';
 import Highcharts from 'highcharts';
+import io from 'socket.io-client';
 import HighchartsReact from 'highcharts-react-official';
 
 export default function SuppliersPage() {
@@ -55,14 +56,29 @@ export default function SuppliersPage() {
     useEffect(() => {
         const controller = new AbortController();
         fetchSuppliers(controller);
-
+        const socket = io('http://localhost:5000');
+        let busy = false;
+        const refresh = async () => {
+            if (controller.signal.aborted || document.hidden || busy) return;
+            busy = true;
+            try { await fetchSuppliers(controller, true); } finally { busy = false; }
+        };
+        socket.on('returns_updated', refresh);
+        socket.on('connect', refresh);
+        window.addEventListener('focus', refresh);
+        const timer = window.setInterval(refresh, 15000);
         return () => {
+            window.clearInterval(timer);
+            window.removeEventListener('focus', refresh);
+            socket.off('returns_updated', refresh);
+            socket.off('connect', refresh);
+            socket.disconnect();
             controller.abort();
         };
     }, []);
 
-    const fetchSuppliers = async (controller = null) => {
-        setLoading(true);
+    const fetchSuppliers = async (controller = null, silent = false) => {
+        if (!silent) setLoading(true);
         try {
             const config = {
                 ...(controller && { signal: controller.signal })
@@ -121,15 +137,15 @@ export default function SuppliersPage() {
                 };
             });
 
-            setSuppliers(enhancedSuppliers);
+            if (!controller?.signal.aborted) setSuppliers(enhancedSuppliers);
         } catch (err) {
             if (axios.isCancel(err)) {
                 console.log('API Request canceled to free browser connection pool.');
             } else {
-                toast.error('Failed to load suppliers data');
+                if (!silent) toast.error('Failed to load suppliers data');
             }
         } finally {
-            setLoading(false);
+            if (!silent && !controller?.signal.aborted) setLoading(false);
         }
     };
 
