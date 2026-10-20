@@ -397,7 +397,7 @@ export default function InventoryPage() {
         setLoading(true);
 
         try {
-            const config = signal ? { signal } : {};
+            const config = { allowConcurrent: true, ...(signal ? { signal } : {}) };
 
             const medRes = await axios.get(
                 'http://localhost:5000/api/medicines',
@@ -413,7 +413,7 @@ export default function InventoryPage() {
                     }
                 }
 
-                return { data: [] };
+                return null;
             });
 
             const supRes = await axios.get(
@@ -501,7 +501,9 @@ export default function InventoryPage() {
 
             setMedSupplierMap(mapping);
             setLatestMedDetails(detailsMap);
-            setMedicines(loadedMedicines);
+            if (Array.isArray(medRes?.data)) {
+                setMedicines(loadedMedicines);
+            }
             setSuppliers(loadedSuppliers);
 
             checkLowStock(
@@ -548,7 +550,7 @@ export default function InventoryPage() {
             try {
                 const res = await axios.get(
                     'http://localhost:5000/api/medicines',
-                    { signal: controller.signal }
+                    { signal: controller.signal, allowConcurrent: true }
                 );
 
                 if (
