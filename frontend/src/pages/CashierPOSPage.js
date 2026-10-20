@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import CashierLayout from '../components/layout/CashierLayout';
 import { inventoryApi } from '../api/inventoryApi';
 import { salesApi } from '../api/salesApi';
@@ -8,6 +8,7 @@ import {
     Eye, Edit, Ban, X, User, CreditCard, Stethoscope, MessageSquare, FileCheck, MoreHorizontal, Star, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import io from 'socket.io-client';
 import axios from '../api/axiosInstance';
 
 export default function CashierPOSPage() {
@@ -31,15 +32,27 @@ export default function CashierPOSPage() {
 
     const [crmCustomers, setCrmCustomers] = useState([]);
     const [currentLoyaltyPoints, setCurrentLoyaltyPoints] = useState(0);
+    const selectedCustomerId = useMemo(() => {
+        const prescription = pendingPrescriptions.find(p => String(p.id) === String(selectedPrescriptionId));
+        return prescription?.patientId || prescription?.patient?.id || null;
+    }, [pendingPrescriptions, selectedPrescriptionId]);
+
+    useEffect(() => {
+        const customer = crmCustomers.find(c => String(c.id) === String(selectedCustomerId));
+        setCurrentLoyaltyPoints(customer ? Number(customer.loyaltyPoints || 0) : 0);
+    }, [crmCustomers, selectedCustomerId]);
 
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
+    const crmRequestVersion = useRef(0);
+    const salesRequestVersion = useRef(0);
+    const salesRequestsInFlight = useRef(0);
+    const salesPageMounted = useRef(false);
 
     useEffect(() => {
         const controller = new AbortController();
 
         fetchInventory(controller);
-        fetchSalesHistory(controller);
         fetchPendingPrescriptions(controller);
         fetchCRMCustomers(controller);
 
@@ -57,21 +70,64 @@ export default function CashierPOSPage() {
         }
     };
 
-    const fetchSalesHistory = async () => {
-        setLoadingHistory(true);
+    const fetchSalesHistory = useCallback(async (silent = false) => {
+        if (!salesPageMounted.current || (silent && salesRequestsInFlight.current > 0)) return;
+
+        const version = ++salesRequestVersion.current;
+        salesRequestsInFlight.current += 1;
+        if (!silent) setLoadingHistory(true);
+
         try {
             const res = await salesApi.list({ page: 0, size: 50 });
-            if (Array.isArray(res.data)) {
-                setRecentSales(res.data);
-            } else {
-                setRecentSales(res.data?.content || []);
+            if (salesPageMounted.current && version === salesRequestVersion.current) {
+                if (Array.isArray(res.data)) {
+                    setRecentSales(res.data);
+                } else {
+                    setRecentSales(res.data?.content || []);
+                }
             }
         } catch (err) {
-            console.error('Failed to load sales history', err);
+            if (salesPageMounted.current && version === salesRequestVersion.current && !silent) {
+                console.error('Failed to load sales history', err);
+            }
         } finally {
-            setLoadingHistory(false);
+            salesRequestsInFlight.current -= 1;
+            if (salesPageMounted.current && version === salesRequestVersion.current && !silent) {
+                setLoadingHistory(false);
+            }
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        salesPageMounted.current = true;
+        fetchSalesHistory();
+
+        const refreshSales = () => {
+            if (!document.hidden) fetchSalesHistory(true);
+        };
+        const handleSaleStorage = (event) => {
+            if (event.key === 'pos_new_sale') refreshSales();
+        };
+        const socket = io('http://localhost:5000');
+        socket.on('receive_notification', refreshSales);
+        socket.on('connect', refreshSales);
+        window.addEventListener('storage', handleSaleStorage);
+        window.addEventListener('focus', refreshSales);
+        document.addEventListener('visibilitychange', refreshSales);
+        const timer = window.setInterval(refreshSales, 5000);
+
+        return () => {
+            salesPageMounted.current = false;
+            salesRequestVersion.current += 1;
+            window.clearInterval(timer);
+            window.removeEventListener('storage', handleSaleStorage);
+            window.removeEventListener('focus', refreshSales);
+            document.removeEventListener('visibilitychange', refreshSales);
+            socket.off('receive_notification', refreshSales);
+            socket.off('connect', refreshSales);
+            socket.disconnect();
+        };
+    }, [fetchSalesHistory]);
 
     const fetchPendingPrescriptions = async (controller = null) => {
         try {
@@ -87,16 +143,33 @@ export default function CashierPOSPage() {
     };
 
     const fetchCRMCustomers = async (controller = null) => {
+        const version = ++crmRequestVersion.current;
         try {
             const config = { ...(controller ? { signal: controller.signal } : {}) };
-            const res = await axios.get('http://localhost:5000/api/crm/customers', config);
-            setCrmCustomers(res.data || []);
+            const res = await axios.get('http://localhost:5000/api/crm/customers', { ...config, allowConcurrent: true });
+            if (version === crmRequestVersion.current && !controller?.signal.aborted) {
+                setCrmCustomers(res.data || []);
+            }
         } catch (err) {
             if (!axios.isCancel(err)) {
                 console.error('Failed to load CRM customers', err);
             }
         }
     };
+
+    useEffect(() => {
+        const refreshCustomers = () => {
+            if (!document.hidden) fetchCRMCustomers();
+        };
+        const socket = io('http://localhost:5000');
+        socket.on('crm_updated', refreshCustomers);
+        window.addEventListener('focus', refreshCustomers);
+        return () => {
+            socket.off('crm_updated', refreshCustomers);
+            socket.disconnect();
+            window.removeEventListener('focus', refreshCustomers);
+        };
+    }, []);
 
     const handlePrescriptionSelect = (e) => {
         const rxId = e.target.value;
@@ -119,12 +192,6 @@ export default function CashierPOSPage() {
         setCustomerName(pName);
         setDoctorName(dName);
 
-        const matchedCustomer = crmCustomers.find(c =>
-            (c.name && c.name.toLowerCase() === pName.toLowerCase()) ||
-            (c.nic && rx.patient?.nic && c.nic.toLowerCase() === rx.patient.nic.toLowerCase())
-        );
-        setCurrentLoyaltyPoints(matchedCustomer ? (matchedCustomer.loyaltyPoints || 0) : 0);
-
         const rxItems = rx.prescribedMedicines || rx.items || [];
 
         if (rxItems && rxItems.length > 0) {
@@ -135,10 +202,12 @@ export default function CashierPOSPage() {
             rxItems.forEach(item => {
                 let med = null;
 
+                // 1. Try finding exact ID
                 if (item.medicineId && String(item.medicineId) !== 'null') {
                     med = medicines.find(m => String(m.id) === String(item.medicineId));
                 }
 
+                // 2. Try Flexible Name Matching
                 if (!med && item.medicineName) {
                     const aiMedWords = item.medicineName.toLowerCase().trim().split(/\s+/);
                     const firstWord = aiMedWords[0] || '';
@@ -260,7 +329,7 @@ export default function CashierPOSPage() {
 
     const handleCheckout = async () => {
         if (cart.length === 0) {
-            toast.error('Cart is empty!');
+            window.alert('Checkout blocked: Cart is empty.\n\nAdd medicines to the cart before completing checkout.');
             return;
         }
 
@@ -272,14 +341,19 @@ export default function CashierPOSPage() {
         const hasControlledItem = cart.some(item => Boolean(item.isControlled));
 
         if (hasControlledItem && (!selectedPrescriptionId || !customerName || !doctorName)) {
-            window.alert("🚨 STOP! NMRA REGULATORY WARNING:\n\nREQUIRED VALID PRESCRIPTION!\n\nYou have a 'Controlled Drug' in the cart. You must provide a valid Prescription to automatically load Patient & Doctor details.");
-            toast.error('Required Valid Prescription! Missing details.');
+            const missingDetails = [
+                !customerName && 'Patient name',
+                !doctorName && 'Doctor name',
+                !selectedPrescriptionId && 'Prescription reference (RX)'
+            ].filter(Boolean);
+            window.alert(`Checkout blocked: Controlled medicine requirements are missing.\n\nRequired: ${missingDetails.join(', ')}.\n\nSelect a valid prescription with patient and doctor details.`);
             return;
         }
 
         setLoading(true);
         try {
             const payload = {
+                customerId: selectedCustomerId,
                 customerName: customerName || 'Walk-in Customer',
                 doctorName,
                 paymentMethod: 'Cash',
@@ -302,9 +376,20 @@ export default function CashierPOSPage() {
             await fetchInventory();
             fetchSalesHistory();
             fetchPendingPrescriptions();
+            fetchCRMCustomers();
 
         } catch (err) {
-            toast.error(err.response?.data?.error || 'Checkout failed');
+            const errorMessage = err.response?.data?.error || 'Checkout failed';
+            const isCheckoutValidation = err.response?.status === 400 && (
+                /cart is empty/i.test(errorMessage) ||
+                /controlled substances strictly require/i.test(errorMessage) ||
+                /insufficient stock/i.test(errorMessage)
+            );
+            if (isCheckoutValidation) {
+                window.alert(`Checkout blocked\n\n${errorMessage}`);
+            } else {
+                toast.error(errorMessage);
+            }
         } finally {
             setLoading(false);
         }
@@ -577,7 +662,7 @@ export default function CashierPOSPage() {
                                 </div>
                                 <button
                                     onClick={handleCheckout}
-                                    disabled={loading || cart.length === 0 || cart.some(i => i.isUnmapped)}
+                                    disabled={loading || cart.some(i => i.isUnmapped)}
                                     className="w-full bg-indigo-500/90 backdrop-blur-md text-white font-bold py-3.5 rounded-2xl shadow-[0_10px_25px_-5px_rgba(99,102,241,0.4)] hover:bg-indigo-600 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-[15px] relative z-50 border border-indigo-400/50"
                                 >
                                     <CheckCircle size={18} className={loading ? "animate-spin" : ""} />
