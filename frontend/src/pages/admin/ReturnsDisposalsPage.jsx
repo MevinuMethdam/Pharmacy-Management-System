@@ -11,6 +11,10 @@ export default function ReturnsDisposalsPage() {
     const [activeTab, setActiveTab] = useState('All');
     const [settlementForm, setSettlementForm] = useState(null);
     const [settlementReason, setSettlementReason] = useState('');
+    const [refundItems, setRefundItems] = useState([]);
+    const [refundQuantities, setRefundQuantities] = useState({});
+    const [refundItemsLoading, setRefundItemsLoading] = useState(false);
+    const [refundItemsError, setRefundItemsError] = useState('');
     const [evidenceImage, setEvidenceImage] = useState(null);
     const [evidenceLoading, setEvidenceLoading] = useState(false);
     const [submittingSettlement, setSubmittingSettlement] = useState(false);
@@ -66,9 +70,42 @@ export default function ReturnsDisposalsPage() {
         };
     }, []);
 
+    useEffect(() => {
+        if (settlementForm?.type !== 'refund') return;
+        const controller = new AbortController();
+        const record = history.find(row => String(row.id) === String(settlementForm.id));
+        setRefundItemsLoading(true);
+        setRefundItemsError('');
+        setRefundItems([]);
+        setRefundQuantities({});
+        axios.get('http://localhost:5000/api/purchases', {
+            signal: controller.signal, headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        }).then(response => {
+            if (controller.signal.aborted || !record) return;
+            const choices = (response.data || []).filter(invoice =>
+                String(invoice.supplierId) === String(record.supplierId) &&
+                new Date(invoice.createdAt) <= new Date(record.createdAt)
+            ).flatMap(invoice => (invoice.items || []).filter(item =>
+                String(item.medicineId) === String(record.medicineId) &&
+                item.batchNumber === record.batchNumber && Number(item.quantity) > 0 &&
+                Math.round(Number(item.costPrice) * 100) === Math.round(Number(record.unitPrice) * 100)
+            ).map(item => ({ ...item, invoiceNumber: invoice.invoiceNumber, grnNumber: invoice.grnNumber })));
+            setRefundItems(choices);
+            if (choices.length === 1) setRefundQuantities({ [choices[0].id]: Math.min(Number(record.quantity), Number(choices[0].quantity)) });
+            if (!choices.length) setRefundItemsError('No matching GRN item found for this batch and cost. Check its purchase records before requesting a refund.');
+        }).catch(error => {
+            if (!axios.isCancel(error)) setRefundItemsError('Unable to load invoice items. Close and reopen this request to retry.');
+        }).finally(() => { if (!controller.signal.aborted) setRefundItemsLoading(false); });
+        return () => controller.abort();
+    }, [settlementForm]);
+
     const handleAction = (id, type) => {
         if (settlementBusy.current) return;
         evidenceRead.current += 1;
+        setRefundItemsLoading(type === 'refund');
+        setRefundItemsError('');
+        setRefundItems([]);
+        setRefundQuantities({});
         setSettlementForm({ id, type });
         setSettlementReason('');
         setEvidenceImage(null);
@@ -111,11 +148,20 @@ export default function ReturnsDisposalsPage() {
         event.preventDefault();
         if (!settlementForm || settlementBusy.current || evidenceLoading) return;
         if (!settlementReason.trim()) return toast.error('Please enter a reason.');
+        const refundAllocations = refundItems.map(item => ({ purchaseItemId: item.id, quantity: Number(refundQuantities[item.id] || 0) })).filter(item => item.quantity > 0);
+        if (settlementForm.type === 'refund') {
+            const record = history.find(row => String(row.id) === String(settlementForm.id));
+            if (refundItemsLoading || refundItemsError || !record ||
+                refundAllocations.reduce((sum, item) => sum + item.quantity, 0) !== Number(record.quantity)) {
+                return toast.error('Allocate the full returned quantity to its matching invoice items.');
+            }
+        }
         settlementBusy.current = true;
         setSubmittingSettlement(true);
         try {
             await axios.post(`http://localhost:5000/api/returns/${settlementForm.type}/${settlementForm.id}`, {
-                reason: settlementReason.trim(), evidenceImage
+                reason: settlementReason.trim(), evidenceImage,
+                ...(settlementForm.type === 'refund' ? { refundAllocations } : {})
             }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
             toast.success('Submitted to supplier. Status: Reviewing.');
             setSettlementForm(null);
@@ -149,6 +195,8 @@ export default function ReturnsDisposalsPage() {
                 .hide-scrollbar::-webkit-scrollbar { display: none; }
                 .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+                .rd-settlement-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+                .rd-settlement-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
                 /* Scoped presentation only: Returns & Disposals. */
                 .rd-page .rd-summary { gap: 24px; }
                 .rd-page .rd-stat {
@@ -419,7 +467,7 @@ export default function ReturnsDisposalsPage() {
             </div>
             {settlementForm && (
                 <div className="fixed inset-0 z-[150] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 no-print">
-                    <form onSubmit={submitSettlement} role="dialog" aria-modal="true" aria-labelledby="return-settlement-title" className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
+                    <form onSubmit={submitSettlement} role="dialog" aria-modal="true" aria-labelledby="return-settlement-title" className="rd-settlement-scroll w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
                         <div className="flex items-start justify-between gap-4">
                             <div>
                                 <h2 id="return-settlement-title" className="text-xl font-bold text-slate-800">{settlementForm.type === 'replace' ? 'Request Replacement' : 'Request Cash Refund'}</h2>
@@ -427,6 +475,35 @@ export default function ReturnsDisposalsPage() {
                             </div>
                             <button type="button" onClick={closeSettlement} disabled={submittingSettlement} aria-label="Close request" className="rounded-full px-3 py-1 text-slate-500 hover:bg-slate-100 disabled:opacity-50">✕</button>
                         </div>
+                        {settlementForm.type === 'refund' && (
+                            <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4">
+                                <p className="text-sm font-bold text-slate-700">Refund invoice quantities</p>
+                                <p className="text-xs text-slate-500 mt-1">Allocate all {history.find(row => String(row.id) === String(settlementForm.id))?.quantity} returned units. Only these invoice items will be reduced after supplier acceptance.</p>
+                                {refundItemsLoading && <p className="text-xs mt-3">Loading matching GRN items...</p>}
+                                {refundItemsError && <p role="alert" className="text-xs text-rose-600 mt-3">{refundItemsError}</p>}
+                                {refundItems.map(item => (
+                                    <div key={item.id} className="flex items-center justify-between gap-4 mt-4 pt-4 border-t border-emerald-200/60 text-xs text-slate-600">
+                                        <div className="min-w-0 flex-1">
+                                            <p className="font-bold text-[13px] text-slate-800 break-words">{item.invoiceNumber}</p>
+                                            <p className="mt-1 text-[11px] text-slate-500 break-words">{item.grnNumber}</p>
+                                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-[11px]">
+                                                <span>Batch <span className="font-semibold text-emerald-800">{item.batchNumber}</span></span>
+                                                <span>Available <span className="font-semibold text-slate-700">{item.quantity}</span></span>
+                                            </div>
+                                        </div>
+                                        {refundItems.length === 1 ? (
+                                            <div aria-label={`Refund quantity for ${item.invoiceNumber}: ${refundQuantities[item.id] ?? 0}`} className="shrink-0 text-right pl-4 border-l border-emerald-200/60">
+                                                <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">Refund qty</p>
+                                                <p className="mt-1 text-[28px] leading-none font-bold tabular-nums text-emerald-800">{refundQuantities[item.id] ?? 0}</p>
+                                                <p className="mt-1 text-[10px] text-emerald-600">units</p>
+                                            </div>
+                                        ) : (
+                                            <input aria-label={`Refund quantity for ${item.invoiceNumber}, item ${item.id}`} type="number" min="0" max={Number(item.quantity)} step="1" value={refundQuantities[item.id] ?? ''} disabled={submittingSettlement} onChange={event => setRefundQuantities(current => ({ ...current, [item.id]: event.target.value }))} className="w-24 rounded-lg border border-emerald-200 bg-white p-2" placeholder="0" />
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                         <label htmlFor="return-reason" className="block mt-6 mb-2 text-sm font-semibold text-slate-700">Reason *</label>
                         <textarea id="return-reason" required maxLength={2000} autoFocus rows={4} value={settlementReason} onChange={e => setSettlementReason(e.target.value)} disabled={submittingSettlement} placeholder="Explain why this stock needs a replacement or refund..." className="w-full rounded-2xl border border-slate-200 p-3 text-sm outline-none focus:ring-2 focus:ring-blue-300" />
                         <label htmlFor="return-photo" className="block mt-4 mb-2 text-sm font-semibold text-slate-700">Photo (optional)</label>
@@ -436,7 +513,7 @@ export default function ReturnsDisposalsPage() {
                         {evidenceImage && <img src={evidenceImage} alt="Return evidence preview" className="mt-3 max-h-48 w-full rounded-xl object-contain border border-slate-100" />}
                         <div className="flex justify-end gap-3 mt-6">
                             <button type="button" onClick={closeSettlement} disabled={submittingSettlement} className="px-5 py-2.5 rounded-full bg-slate-100 text-sm font-semibold text-slate-600 disabled:opacity-50">Cancel</button>
-                            <button type="submit" disabled={submittingSettlement || evidenceLoading || !settlementReason.trim()} className="px-5 py-2.5 rounded-full bg-blue-600 text-white text-sm font-semibold disabled:opacity-50">{submittingSettlement ? 'Submitting...' : 'Submit for Review'}</button>
+                            <button type="submit" disabled={submittingSettlement || evidenceLoading || !settlementReason.trim() || (settlementForm.type === 'refund' && (refundItemsLoading || !!refundItemsError))} className="px-5 py-2.5 rounded-full bg-blue-600 text-white text-sm font-semibold disabled:opacity-50">{submittingSettlement ? 'Submitting...' : 'Submit for Review'}</button>
                         </div>
                     </form>
                 </div>
